@@ -1,0 +1,15 @@
+[package]
+name = "talos-tui"
+description = "Terminal UI for Talos"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+talos-common = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+ratatui = "0.29"
+crossterm = "0.28"

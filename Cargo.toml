@@ -1,8 +1,27 @@
-[package]
-name = "talos"
-description = "Robot control and monitoring system"
-authors = ["Richard Osterloh <richard.osterloh@gmail.com>"]
+[workspace]
+resolver = "3"
+members = [
+    "talos-cli",
+    "talos-common",
+    "talos-agent",
+    "talos-tui",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+authors = ["Richard Osterloh <richard.osterloh@gmail.com>"]
+license = "MIT"
 
-[dependencies]
+[workspace.dependencies]
+talos-common = { path = "talos-common" }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+thiserror = "2"

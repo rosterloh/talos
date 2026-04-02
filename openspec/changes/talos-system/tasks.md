@@ -1,30 +1,30 @@
 ## 1. Workspace Setup
 
-- [ ] 1.1 Convert root `Cargo.toml` to workspace with members: `talos-cli`, `talos-common`, `talos-agent`, `talos-tui`
-- [ ] 1.2 Scaffold crate directories with `Cargo.toml` and `src/lib.rs` or `src/main.rs` for each member
-- [ ] 1.3 Add shared workspace dependencies: `tokio`, `serde`, `bincode`, `tracing`, `tracing-subscriber`
+- [x] 1.1 Convert root `Cargo.toml` to workspace with members: `talos-cli`, `talos-common`, `talos-agent`, `talos-tui`
+- [x] 1.2 Scaffold crate directories with `Cargo.toml` and `src/lib.rs` or `src/main.rs` for each member
+- [x] 1.3 Add shared workspace dependencies: `tokio`, `serde`, `bincode`, `tracing`, `tracing-subscriber`
 
 ## 2. talos-common: Protocol Types
 
-- [ ] 2.1 Define `DynValue` enum with all ROS 2 primitive types, `Array`, `Bytes`, and `Struct` variants; derive `Serialize`/`Deserialize`
-- [ ] 2.2 Define `TopicInfo`, `NodeInfo`, `Timestamp`, and `JointInfo` structs
-- [ ] 2.3 Define `Request` enum (`ListTopics`, `ListNodes`, `SetJointPosition`, `ExecutePose`)
-- [ ] 2.4 Define `Response` enum (`TopicList`, `NodeList`, `TopicData`, `PoseList`, `Error`)
-- [ ] 2.5 Write unit tests for bincode round-trip serialisation of all protocol types
+- [x] 2.1 Define `DynValue` enum with all ROS 2 primitive types, `Array`, `Bytes`, and `Struct` variants; derive `Serialize`/`Deserialize`
+- [x] 2.2 Define `TopicInfo`, `NodeInfo`, `Timestamp`, and `JointInfo` structs
+- [x] 2.3 Define `Request` enum (`ListTopics`, `ListNodes`, `SetJointPosition`, `ExecutePose`)
+- [x] 2.4 Define `Response` enum (`TopicList`, `NodeList`, `TopicData`, `PoseList`, `Error`)
+- [x] 2.5 Write unit tests for bincode round-trip serialisation of all protocol types
 
 ## 3. talos-common: Codec and Transport
 
-- [ ] 3.1 Implement length-prefixed frame codec using `tokio_util::codec::Decoder`/`Encoder` with configurable max frame size
-- [ ] 3.2 Define `Transport` async trait with `AsyncRead`/`AsyncWrite` associated types
-- [ ] 3.3 Implement UDS transport: server (listen + accept) and client (connect) using `tokio::net::UnixStream`/`UnixListener`
-- [ ] 3.4 Write integration tests: client connects to server, sends request, receives response over UDS
+- [x] 3.1 Implement length-prefixed frame codec using `tokio_util::codec::Decoder`/`Encoder` with configurable max frame size
+- [x] 3.2 Define `Transport` async trait with `AsyncRead`/`AsyncWrite` associated types
+- [x] 3.3 Implement UDS transport: server (listen + accept) and client (connect) using `tokio::net::UnixStream`/`UnixListener`
+- [x] 3.4 Write integration tests: client connects to server, sends request, receives response over UDS
 
 ## 4. talos-common: Config and URDF
 
-- [ ] 4.1 Define config structs (`AgentConfig`, `TransportConfig`, `SubscriptionConfig`, `ControlConfig`, `PoseConfig`) with serde TOML deserialization
-- [ ] 4.2 Implement config loading with default values and `--config` path override
-- [ ] 4.3 Add `urdf-rs` dependency and implement joint extraction from URDF XML string (name, type, limits, parent/child links)
-- [ ] 4.4 Write tests for config loading and URDF joint extraction
+- [x] 4.1 Define config structs (`AgentConfig`, `TransportConfig`, `SubscriptionConfig`, `ControlConfig`, `PoseConfig`) with serde TOML deserialization
+- [x] 4.2 Implement config loading with default values and `--config` path override
+- [x] 4.3 Add `urdf-rs` dependency and implement joint extraction from URDF XML string (name, type, limits, parent/child links)
+- [x] 4.4 Write tests for config loading and URDF joint extraction
 
 ## 5. talos-agent: Core
 
