@@ -42,15 +42,21 @@ talos/
 │
 ├── talos-agent/                # ROS 2 bridge — runs on target device
 │   └── src/
-│       └── main.rs             # rclrs node, subscriptions, IPC server
+│       ├── main.rs             # Startup, signal handling, task orchestration
+│       ├── bridge.rs           # rclrs node, subscriptions, joint publisher
+│       ├── conversions.rs      # ROS 2 msg → DynValue conversion functions
+│       └── server.rs           # UDS server, request dispatch, client fan-out
 │
 ├── talos-tui/                  # Terminal UI — runs on developer machine
 │   └── src/
-│       └── main.rs             # ratatui app with 4-tab interface
+│       ├── main.rs             # Event loop, keyboard handling
+│       ├── state.rs            # AppState, response handling, filters
+│       ├── client.rs           # Auto-reconnecting IPC client
+│       └── ui/                 # Tab renderers (topics, nodes, log, joints)
 │
 └── talos-cli/                  # CLI — runs on developer machine
     └── src/
-        └── main.rs             # clap subcommands (list-topics, echo, etc.)
+        └── main.rs             # clap subcommands (list-topics, list-nodes, echo)
 ```
 
 ### Dependency Graph
@@ -158,12 +164,12 @@ Only `talos-agent` depends on ROS 2. Everything else builds standalone.
 │  POSES                         │  Velocity:  0.0000                 │
 │  ─────                         │  Effort:    0.0000                 │
 │    home                        │                                    │
-│    pick_ready                  │  [Enter] Edit position             │
-│    stow                        │  [g] Go to value                   │
-│                                │  [h] Home this joint               │
+│    pick_ready                  │                                    │
+│    stow                        │                                    │
+│                                │                                    │
 │                                │                                    │
 ├─────────────────────────────────────────────────────────────────────┤
-│  ←→ adjust  Enter edit  p execute pose  q quit                     │
+│  ↑↓ navigate  e edit  x execute pose  j/o focus  Tab pane  q quit  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
