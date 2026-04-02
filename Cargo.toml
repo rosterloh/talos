@@ -1,0 +1,8 @@
+[package]
+name = "talos"
+description = "Robot control and monitoring system"
+authors = ["Richard Osterloh <richard.osterloh@gmail.com>"]
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
