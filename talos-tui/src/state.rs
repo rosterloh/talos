@@ -135,6 +135,10 @@ pub struct AppState {
     pub poses: Vec<PoseInfo>,
     pub pose_selected: usize,
     pub joint_focus: JointFocus,
+    pub editing_joint: bool,
+    pub joint_input: String,
+    pub joint_input_error: Option<String>,
+    pub pose_confirming: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +172,10 @@ impl Default for AppState {
             poses: Vec::new(),
             pose_selected: 0,
             joint_focus: JointFocus::JointList,
+            editing_joint: false,
+            joint_input: String::new(),
+            joint_input_error: None,
+            pose_confirming: false,
         }
     }
 }

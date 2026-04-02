@@ -7,8 +7,10 @@ use std::sync::Arc;
 
 use clap::Parser;
 use talos_common::config::AgentConfig;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 use tracing::{error, info};
+
+pub type JointPublisher = Arc<Mutex<Option<rclrs::Publisher<sensor_msgs::msg::JointState>>>>;
 
 #[derive(Parser)]
 #[command(name = "talos-agent", about = "ROS 2 bridge agent for Talos")]
@@ -37,14 +39,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let (broadcast_tx, _) = broadcast::channel::<talos_common::protocol::messages::Response>(256);
+    let joint_publisher: JointPublisher = Arc::new(Mutex::new(None));
 
     let shutdown = tokio::signal::ctrl_c();
 
     let server_handle = {
         let config = Arc::clone(&config);
         let broadcast_tx = broadcast_tx.clone();
+        let joint_pub = Arc::clone(&joint_publisher);
         tokio::spawn(async move {
-            if let Err(e) = server::run(config, broadcast_tx).await {
+            if let Err(e) = server::run(config, broadcast_tx, joint_pub).await {
                 error!("server error: {e}");
             }
         })
@@ -53,8 +57,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bridge_handle = {
         let config = Arc::clone(&config);
         let broadcast_tx = broadcast_tx.clone();
+        let joint_pub = Arc::clone(&joint_publisher);
         tokio::spawn(async move {
-            if let Err(e) = bridge::run(config, broadcast_tx).await {
+            if let Err(e) = bridge::run(config, broadcast_tx, joint_pub).await {
                 error!("bridge error: {e}");
             }
         })

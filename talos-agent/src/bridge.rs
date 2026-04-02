@@ -7,11 +7,13 @@ use talos_common::protocol::types::Timestamp;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
+use crate::JointPublisher;
 use crate::conversions::*;
 
 pub async fn run(
     config: Arc<AgentConfig>,
     broadcast_tx: broadcast::Sender<Response>,
+    joint_publisher: JointPublisher,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let context = rclrs::Context::default_from_env()?;
     let mut executor = context.create_basic_executor();
@@ -120,8 +122,9 @@ pub async fn run(
     }
 
     if let Some(control) = &config.control {
-        let _publisher = node.create_publisher::<sensor_msgs::msg::JointState>(&control.topic)?;
+        let publisher = node.create_publisher::<sensor_msgs::msg::JointState>(&control.topic)?;
         info!(topic = %control.topic, "joint command publisher created");
+        *joint_publisher.lock().await = Some(publisher);
     }
 
     info!("rclrs node spinning");

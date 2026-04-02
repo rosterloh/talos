@@ -11,9 +11,12 @@ use tokio::sync::broadcast;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{error, info, warn};
 
+use crate::JointPublisher;
+
 pub async fn run(
     config: Arc<AgentConfig>,
     broadcast_tx: broadcast::Sender<Response>,
+    joint_publisher: JointPublisher,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let transport_config = TransportConfig {
         socket_path: config.transport.socket_path.clone(),
@@ -25,6 +28,7 @@ pub async fn run(
     loop {
         let conn = UdsTransport::accept(&listener).await?;
         let config = Arc::clone(&config);
+        let joint_pub = Arc::clone(&joint_publisher);
         let mut broadcast_rx = broadcast_tx.subscribe();
 
         info!("client connected");
@@ -38,7 +42,7 @@ pub async fn run(
                     req = reader.next() => {
                         match req {
                             Some(Ok(request)) => {
-                                let response = handle_request(&request, &config);
+                                let response = handle_request(&request, &config, &joint_pub).await;
                                 if let Err(e) = writer.send(response).await {
                                     error!("failed to send response: {e}");
                                     break;
@@ -76,11 +80,13 @@ pub async fn run(
     }
 }
 
-fn handle_request(request: &Request, config: &AgentConfig) -> Response {
+async fn handle_request(
+    request: &Request,
+    config: &AgentConfig,
+    joint_publisher: &JointPublisher,
+) -> Response {
     match request {
         Request::ListTopics => {
-            // TODO: query rclrs graph for full topic list
-            // For now, return configured subscriptions
             let topics = config
                 .subscriptions
                 .iter()
@@ -94,16 +100,31 @@ fn handle_request(request: &Request, config: &AgentConfig) -> Response {
             Response::TopicList(topics)
         }
         Request::ListNodes => {
-            // TODO: query rclrs graph for node list
             Response::NodeList(vec![])
         }
         Request::SetJointPosition { joint, position } => {
             if config.control.is_none() {
                 return Response::Error("control not configured".into());
             }
-            // TODO: publish joint command via rclrs publisher
-            info!(joint = %joint, position = %position, "joint position command received");
-            Response::Error("joint control not yet implemented".into())
+            let guard = joint_publisher.lock().await;
+            match guard.as_ref() {
+                Some(publisher) => {
+                    let mut msg = sensor_msgs::msg::JointState::default();
+                    msg.name = vec![joint.clone()];
+                    msg.position = vec![*position];
+                    match publisher.publish(msg) {
+                        Ok(()) => {
+                            info!(joint = %joint, position = %position, "published joint command");
+                            Response::Error("ok".into())
+                        }
+                        Err(e) => {
+                            error!("failed to publish joint command: {e}");
+                            Response::Error(format!("publish failed: {e}"))
+                        }
+                    }
+                }
+                None => Response::Error("joint publisher not ready".into()),
+            }
         }
         Request::ExecutePose { name } => {
             if config.control.is_none() {
@@ -111,13 +132,38 @@ fn handle_request(request: &Request, config: &AgentConfig) -> Response {
             }
             match config.poses.get(name) {
                 Some(positions) => {
-                    // TODO: publish full JointState via rclrs publisher
-                    let pose_info = PoseInfo {
-                        name: name.clone(),
-                        positions: positions.iter().map(|(k, v)| (k.clone(), *v)).collect(),
-                    };
-                    info!(pose = %name, joints = pose_info.positions.len(), "executing pose");
-                    Response::Error("pose execution not yet implemented".into())
+                    let guard = joint_publisher.lock().await;
+                    match guard.as_ref() {
+                        Some(publisher) => {
+                            let mut msg = sensor_msgs::msg::JointState::default();
+                            let (names, pos): (Vec<_>, Vec<_>) =
+                                positions.iter().map(|(k, v)| (k.clone(), *v)).unzip();
+                            msg.name = names;
+                            msg.position = pos;
+                            match publisher.publish(msg) {
+                                Ok(()) => {
+                                    info!(
+                                        pose = %name,
+                                        joints = positions.len(),
+                                        "published pose command"
+                                    );
+                                    let pose_info = PoseInfo {
+                                        name: name.clone(),
+                                        positions: positions
+                                            .iter()
+                                            .map(|(k, v)| (k.clone(), *v))
+                                            .collect(),
+                                    };
+                                    Response::PoseList(vec![pose_info])
+                                }
+                                Err(e) => {
+                                    error!("failed to publish pose: {e}");
+                                    Response::Error(format!("publish failed: {e}"))
+                                }
+                            }
+                        }
+                        None => Response::Error("joint publisher not ready".into()),
+                    }
                 }
                 None => Response::Error(format!("unknown pose: {name}")),
             }

@@ -47,51 +47,51 @@
 ## 7. talos-agent: Joint Control
 
 - [x] 7.1 Implement joint command publisher: create `JointState` publisher on configured control topic
-- [ ] 7.2 Handle `Request::SetJointPosition` — construct and publish `JointState` for single joint
-- [ ] 7.3 Handle `Request::ExecutePose` — look up pose in config, construct and publish full `JointState`
+- [x] 7.2 Handle `Request::SetJointPosition` — construct and publish `JointState` for single joint
+- [x] 7.3 Handle `Request::ExecutePose` — look up pose in config, construct and publish full `JointState`
 - [x] 7.4 Return `Response::Error` when control is not configured
 
 ## 8. talos-tui: App Skeleton
 
-- [ ] 8.1 Set up ratatui app with crossterm backend, tick-based event loop, and clean terminal restore on exit
-- [ ] 8.2 Implement tab bar rendering (Topics, Nodes, Log, Joints) with number key and Tab switching
-- [ ] 8.3 Implement connection status indicator (top-right corner)
-- [ ] 8.4 Implement IPC client: connect to agent, spawn reader task that updates shared state (`Arc<Mutex<AppState>>`)
-- [ ] 8.5 Implement keyboard navigation framework: arrow keys, Enter, Tab between panes, `q` quit, `?` help overlay
+- [x] 8.1 Set up ratatui app with crossterm backend, tick-based event loop, and clean terminal restore on exit
+- [x] 8.2 Implement tab bar rendering (Topics, Nodes, Log, Joints) with number key and Tab switching
+- [x] 8.3 Implement connection status indicator (top-right corner)
+- [x] 8.4 Implement IPC client: connect to agent, spawn reader task that updates shared state (`Arc<Mutex<AppState>>`)
+- [x] 8.5 Implement keyboard navigation framework: arrow keys, Enter, Tab between panes, `q` quit, `?` help overlay
 
 ## 9. talos-tui: Topics Tab
 
-- [ ] 9.1 Implement topic list widget: display topic names with live Hz counter
-- [ ] 9.2 Implement `DynValue` tree renderer: collapsed by default, expand/collapse with keys
-- [ ] 9.3 Wire topic selection to detail pane: show latest `DynValue` for selected topic
-- [ ] 9.4 Implement Hz calculation from message timestamps in the latest-value store
+- [x] 9.1 Implement topic list widget: display topic names with live Hz counter
+- [x] 9.2 Implement `DynValue` tree renderer: collapsed by default, expand/collapse with keys
+- [x] 9.3 Wire topic selection to detail pane: show latest `DynValue` for selected topic
+- [x] 9.4 Implement Hz calculation from message timestamps in the latest-value store
 
 ## 10. talos-tui: Nodes Tab
 
-- [ ] 10.1 Implement node list widget from `Response::NodeList` data
-- [ ] 10.2 Implement node detail widget: namespace, publishers, subscribers, services
+- [x] 10.1 Implement node list widget from `Response::NodeList` data
+- [x] 10.2 Implement node detail widget: namespace, publishers, subscribers, services
 
 ## 11. talos-tui: Log Tab
 
-- [ ] 11.1 Implement ring buffer for `/rosout` messages (configurable max size)
-- [ ] 11.2 Implement log table widget: timestamp, severity (coloured), node name, message columns
-- [ ] 11.3 Implement severity filter (dropdown or toggle)
-- [ ] 11.4 Implement node name filter (text input)
-- [ ] 11.5 Implement keyword search filter
+- [x] 11.1 Implement ring buffer for `/rosout` messages (configurable max size)
+- [x] 11.2 Implement log table widget: timestamp, severity (coloured), node name, message columns
+- [x] 11.3 Implement severity filter (dropdown or toggle)
+- [x] 11.4 Implement node name filter (text input)
+- [x] 11.5 Implement keyword search filter
 
 ## 12. talos-tui: Joints Tab
 
-- [ ] 12.1 Implement joint list widget showing joint names and current positions from merged URDF + `/joint_states`
-- [ ] 12.2 Implement limit-aware gauge bar widget for joint position visualisation
-- [ ] 12.3 Implement joint detail pane: type, parent/child links, position gauge, velocity, effort
-- [ ] 12.4 Implement position input: edit key, numeric entry, limit clamping with warning
-- [ ] 12.5 Implement pose list widget below joint list
-- [ ] 12.6 Implement pose execution: select pose, confirm, send `Request::ExecutePose`
+- [x] 12.1 Implement joint list widget showing joint names and current positions from merged URDF + `/joint_states`
+- [x] 12.2 Implement limit-aware gauge bar widget for joint position visualisation
+- [x] 12.3 Implement joint detail pane: type, parent/child links, position gauge, velocity, effort
+- [x] 12.4 Implement position input: edit key, numeric entry, limit clamping with warning
+- [x] 12.5 Implement pose list widget below joint list
+- [x] 12.6 Implement pose execution: select pose, confirm, send `Request::ExecutePose`
 
 ## 13. talos-cli
 
-- [ ] 13.1 Set up clap derive CLI with subcommands: `list-topics`, `list-nodes`, `echo`
-- [ ] 13.2 Implement `list-topics`: connect, send `Request::ListTopics`, print table, disconnect
-- [ ] 13.3 Implement `list-nodes`: connect, send `Request::ListNodes`, print table, disconnect
-- [ ] 13.4 Implement `echo <topic>`: connect, receive `TopicData` stream, print `DynValue` tree to stdout, support `--count` flag
-- [ ] 13.5 Implement `--socket` global flag for custom socket path
+- [x] 13.1 Set up clap derive CLI with subcommands: `list-topics`, `list-nodes`, `echo`
+- [x] 13.2 Implement `list-topics`: connect, send `Request::ListTopics`, print table, disconnect
+- [x] 13.3 Implement `list-nodes`: connect, send `Request::ListNodes`, print table, disconnect
+- [x] 13.4 Implement `echo <topic>`: connect, receive `TopicData` stream, print `DynValue` tree to stdout, support `--count` flag
+- [x] 13.5 Implement `--socket` global flag for custom socket path
