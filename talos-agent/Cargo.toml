@@ -13,3 +13,14 @@ serde = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 clap = { workspace = true }
+tokio-util = { workspace = true }
+bytes = { workspace = true }
+futures-util = { version = "0.3", features = ["sink"] }
+rclrs = "0.7"
+rosidl_runtime_rs = "0.6"
+nav_msgs = "*"
+geometry_msgs = "*"
+std_msgs = "*"
+sensor_msgs = "*"
+rcl_interfaces = "*"
+builtin_interfaces = "*"

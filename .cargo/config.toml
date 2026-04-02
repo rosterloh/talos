@@ -1,0 +1,57 @@
+# Patch crates-io with locally built ROS 2 Rust packages from rclrs_ws
+[patch.crates-io.rclrs]
+path = "rclrs_ws/install/rclrs/share/rclrs/rust"
+
+[patch.crates-io.rosidl_runtime_rs]
+path = "rclrs_ws/install/rosidl_runtime_rs/share/rosidl_runtime_rs/rust"
+
+[patch.crates-io.nav_msgs]
+path = "rclrs_ws/install/nav_msgs/share/nav_msgs/rust"
+
+[patch.crates-io.geometry_msgs]
+path = "rclrs_ws/install/geometry_msgs/share/geometry_msgs/rust"
+
+[patch.crates-io.std_msgs]
+path = "rclrs_ws/install/std_msgs/share/std_msgs/rust"
+
+[patch.crates-io.sensor_msgs]
+path = "rclrs_ws/install/sensor_msgs/share/sensor_msgs/rust"
+
+[patch.crates-io.rcl_interfaces]
+path = "rclrs_ws/install/rcl_interfaces/share/rcl_interfaces/rust"
+
+[patch.crates-io.builtin_interfaces]
+path = "rclrs_ws/install/builtin_interfaces/share/builtin_interfaces/rust"
+
+[patch.crates-io.service_msgs]
+path = "rclrs_ws/install/service_msgs/share/service_msgs/rust"
+
+[patch.crates-io.action_msgs]
+path = "rclrs_ws/install/action_msgs/share/action_msgs/rust"
+
+[patch.crates-io.unique_identifier_msgs]
+path = "rclrs_ws/install/unique_identifier_msgs/share/unique_identifier_msgs/rust"
+
+[patch.crates-io.type_description_interfaces]
+path = "rclrs_ws/install/type_description_interfaces/share/type_description_interfaces/rust"
+
+[patch.crates-io.rosgraph_msgs]
+path = "rclrs_ws/install/rosgraph_msgs/share/rosgraph_msgs/rust"
+
+[patch.crates-io.std_srvs]
+path = "rclrs_ws/install/std_srvs/share/std_srvs/rust"
+
+[patch.crates-io.lifecycle_msgs]
+path = "rclrs_ws/install/lifecycle_msgs/share/lifecycle_msgs/rust"
+
+[patch.crates-io.composition_interfaces]
+path = "rclrs_ws/install/composition_interfaces/share/composition_interfaces/rust"
+
+[patch.crates-io.statistics_msgs]
+path = "rclrs_ws/install/statistics_msgs/share/statistics_msgs/rust"
+
+[patch.crates-io.actionlib_msgs]
+path = "rclrs_ws/install/actionlib_msgs/share/actionlib_msgs/rust"
+
+[patch.crates-io.example_interfaces]
+path = "rclrs_ws/install/example_interfaces/share/example_interfaces/rust"

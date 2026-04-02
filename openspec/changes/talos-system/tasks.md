@@ -28,28 +28,28 @@
 
 ## 5. talos-agent: Core
 
-- [ ] 5.1 Set up `rclrs` node creation and async spinning within tokio runtime
-- [ ] 5.2 Implement graceful shutdown on SIGINT/SIGTERM (shut down rclrs node, close client connections)
-- [ ] 5.3 Implement UDS server: accept connections, register clients, broadcast responses to all connected clients
-- [ ] 5.4 Implement request handler: dispatch `ListTopics`/`ListNodes` using rclrs graph APIs
-- [ ] 5.5 Load agent config from TOML on startup, parse CLI args with clap (`--config` flag)
+- [x] 5.1 Set up `rclrs` node creation and async spinning within tokio runtime
+- [x] 5.2 Implement graceful shutdown on SIGINT/SIGTERM (shut down rclrs node, close client connections)
+- [x] 5.3 Implement UDS server: accept connections, register clients, broadcast responses to all connected clients
+- [x] 5.4 Implement request handler: dispatch `ListTopics`/`ListNodes` using rclrs graph APIs
+- [x] 5.5 Load agent config from TOML on startup, parse CLI args with clap (`--config` flag)
 
 ## 6. talos-agent: ROS 2 Subscriptions
 
-- [ ] 6.1 Implement `From<nav_msgs::msg::Odometry> for DynValue`
-- [ ] 6.2 Implement `From<geometry_msgs::msg::Twist> for DynValue`
-- [ ] 6.3 Implement `From<std_msgs::msg::String> for DynValue`
-- [ ] 6.4 Implement `From<sensor_msgs::msg::JointState> for DynValue`
-- [ ] 6.5 Implement `From<rcl_interfaces::msg::Log> for DynValue`
-- [ ] 6.6 Implement subscription creation from config: match type string to typed subscription factory, skip unknown types with warning
-- [ ] 6.7 Wire subscription callbacks to broadcast `Response::TopicData` to connected clients
+- [x] 6.1 Implement `From<nav_msgs::msg::Odometry> for DynValue`
+- [x] 6.2 Implement `From<geometry_msgs::msg::Twist> for DynValue`
+- [x] 6.3 Implement `From<std_msgs::msg::String> for DynValue`
+- [x] 6.4 Implement `From<sensor_msgs::msg::JointState> for DynValue`
+- [x] 6.5 Implement `From<rcl_interfaces::msg::Log> for DynValue`
+- [x] 6.6 Implement subscription creation from config: match type string to typed subscription factory, skip unknown types with warning
+- [x] 6.7 Wire subscription callbacks to broadcast `Response::TopicData` to connected clients
 
 ## 7. talos-agent: Joint Control
 
-- [ ] 7.1 Implement joint command publisher: create `JointState` publisher on configured control topic
+- [x] 7.1 Implement joint command publisher: create `JointState` publisher on configured control topic
 - [ ] 7.2 Handle `Request::SetJointPosition` — construct and publish `JointState` for single joint
 - [ ] 7.3 Handle `Request::ExecutePose` — look up pose in config, construct and publish full `JointState`
-- [ ] 7.4 Return `Response::Error` when control is not configured
+- [x] 7.4 Return `Response::Error` when control is not configured
 
 ## 8. talos-tui: App Skeleton
 
