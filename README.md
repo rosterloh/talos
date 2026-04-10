@@ -35,9 +35,15 @@ talos/
 │       │   ├── codec.rs        # Length-prefixed bincode framing (tokio_util codec)
 │       │   ├── messages.rs     # Request/Response enums
 │       │   └── types.rs        # DynValue, TopicInfo, NodeInfo, JointInfo
+│       ├── session/
+│       │   ├── mod.rs          # ProtocolClient trait (transport-agnostic)
+│       │   ├── uds.rs          # UDS ProtocolClient implementation
+│       │   └── quic.rs         # QUIC ProtocolClient implementation (feature: quic)
 │       ├── transport/
 │       │   ├── mod.rs          # Transport trait (AsyncRead/AsyncWrite)
-│       │   └── uds.rs          # Unix domain socket implementation
+│       │   ├── uds.rs          # Unix domain socket implementation
+│       │   ├── quic.rs         # QUIC endpoint setup (feature: quic)
+│       │   └── certs.rs        # TLS certificate helpers (feature: quic)
 │       └── urdf.rs             # URDF parsing → joint extraction
 │
 ├── talos-agent/                # ROS 2 bridge — runs on target device
@@ -45,7 +51,8 @@ talos/
 │       ├── main.rs             # Startup, signal handling, task orchestration
 │       ├── bridge.rs           # rclrs node, subscriptions, joint publisher
 │       ├── conversions.rs      # ROS 2 msg → DynValue conversion functions
-│       └── server.rs           # UDS server, request dispatch, client fan-out
+│       ├── router.rs           # Per-client subscription tracking and topic routing
+│       └── server.rs           # UDS + QUIC server, request dispatch, client handlers
 │
 ├── talos-tui/                  # Terminal UI — runs on developer machine
 │   └── src/
@@ -176,8 +183,15 @@ Only `talos-agent` depends on ROS 2. Everything else builds standalone.
 ## Agent Configuration
 
 ```toml
-[transport]
+# At least one transport must be configured
+[transport.uds]
 socket_path = "/tmp/talos.sock"
+
+# Optional: enable QUIC for remote access (requires --features quic)
+[transport.quic]
+bind_addr = "0.0.0.0:4433"
+# cert_path = "/path/to/cert.der"   # optional; self-signed if omitted
+# key_path  = "/path/to/key.der"
 
 [[subscriptions]]
 topic = "/odom"
@@ -238,26 +252,34 @@ talos-cli echo /odom --count 5
 
 # Use a custom socket path
 talos-cli --socket /run/talos.sock list-topics
+
+# Connect to a remote agent over QUIC (requires --features quic)
+talos-cli --remote 192.168.1.50:4433 list-topics
+talos-cli --remote 192.168.1.50:4433 echo /odom
 ```
 
 ## Architecture
 
-The IPC protocol uses **length-prefixed bincode** over Unix domain sockets:
+The IPC protocol uses **length-prefixed bincode** over Unix domain sockets or QUIC:
 
 ```
 ┌──────────────────────────────────────┐
 │         Application Logic            │
 ├──────────────────────────────────────┤
+│   Session (ProtocolClient trait)     │
+├──────────────────────────────────────┤
 │   Protocol (Request/Response enums)  │
 ├──────────────────────────────────────┤
 │   Codec (4-byte length + bincode)    │
 ├──────────────────────────────────────┤
-│   Transport trait                    │
+│   Transport                          │
 │   ┌──────────┐  ┌────────────────┐  │
-│   │   UDS    │  │  QUIC (future) │  │
+│   │   UDS    │  │      QUIC      │  │
 │   └──────────┘  └────────────────┘  │
 └──────────────────────────────────────┘
 ```
+
+Clients send explicit `Subscribe` requests after connecting. The agent's `TopicRouter` delivers data only for subscribed topics — no broadcast flooding.
 
 ROS 2 messages are deserialised by the agent into a generic `DynValue` tree, so clients never need ROS 2 message definitions or libraries.
 
@@ -268,7 +290,11 @@ ROS 2 messages are deserialised by the agent into a generic `DynValue` tree, so 
 cargo build -p talos-common -p talos-cli -p talos-tui
 
 # Build talos-agent (requires ROS 2 environment with rclrs)
+source rclrs_ws/install/setup.bash
 cargo build -p talos-agent
+
+# Enable QUIC transport (feature-gated across all crates)
+cargo build --features quic
 ```
 
 ## License
