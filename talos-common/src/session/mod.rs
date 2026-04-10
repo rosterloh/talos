@@ -7,13 +7,11 @@
 //! - [`QuicProtocolClient`] (feature `quic`): QUIC bidirectional control stream +
 //!   server-initiated unidirectional data streams
 
-pub mod server;
 pub mod uds;
 
 #[cfg(feature = "quic")]
 pub mod quic;
 
-pub use server::ProtocolSession;
 pub use uds::UdsProtocolClient;
 
 #[cfg(feature = "quic")]
