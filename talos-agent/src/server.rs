@@ -270,8 +270,10 @@ async fn write_quic_frame<T: Serialize>(
     value: &T,
 ) -> Result<(), String> {
     let payload = bincode::serialize(value).map_err(|e| e.to_string())?;
+    let len: u32 = u32::try_from(payload.len())
+        .map_err(|_| format!("frame too large: {} bytes exceeds u32::MAX", payload.len()))?;
     let mut buf = BytesMut::with_capacity(4 + payload.len());
-    buf.put_u32(payload.len() as u32);
+    buf.put_u32(len);
     buf.put_slice(&payload);
     send.write_all(&buf)
         .await
