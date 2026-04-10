@@ -8,7 +8,7 @@ use crate::error::Error;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentConfig {
-    pub transport: TransportConfig,
+    pub transport: TransportSettings,
     pub subscriptions: Vec<SubscriptionConfig>,
     pub control: Option<ControlConfig>,
     pub poses: HashMap<String, HashMap<String, f64>>,
@@ -17,7 +17,7 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            transport: TransportConfig::default(),
+            transport: TransportSettings::default(),
             subscriptions: Vec::new(),
             control: None,
             poses: HashMap::new(),
@@ -25,15 +25,55 @@ impl Default for AgentConfig {
     }
 }
 
+/// Top-level transport settings. Both `uds` and `quic` are optional; at least one should be
+/// configured for the agent to accept connections. Defaults to UDS-only on the default socket
+/// path when the config file is absent (via `AgentConfig::default()`).
+///
+/// Note: **no** `#[serde(default)]` here — individual `Option<T>` fields already default to
+/// `None` when absent from the TOML.  Adding `#[serde(default)]` on the struct would cause
+/// absent fields to use `TransportSettings::default()` (which enables UDS), overriding the
+/// intent of a `[transport.quic]`-only config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransportConfig {
+pub struct TransportSettings {
+    pub uds: Option<UdsTransportConfig>,
+    pub quic: Option<QuicTransportConfig>,
+}
+
+impl Default for TransportSettings {
+    fn default() -> Self {
+        Self {
+            uds: Some(UdsTransportConfig::default()),
+            quic: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UdsTransportConfig {
     pub socket_path: String,
 }
 
-impl Default for TransportConfig {
+impl Default for UdsTransportConfig {
     fn default() -> Self {
         Self {
             socket_path: "/tmp/talos.sock".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuicTransportConfig {
+    pub bind_addr: String,
+    pub cert_path: Option<String>,
+    pub key_path: Option<String>,
+}
+
+impl Default for QuicTransportConfig {
+    fn default() -> Self {
+        Self {
+            bind_addr: "0.0.0.0:4433".into(),
+            cert_path: None,
+            key_path: None,
         }
     }
 }
@@ -83,9 +123,8 @@ impl AgentConfig {
         }
     }
 
-    pub fn into_transport_config(&self) -> crate::transport::TransportConfig {
-        crate::transport::TransportConfig {
-            socket_path: self.transport.socket_path.clone(),
-        }
+    /// Returns the UDS socket path if UDS transport is configured.
+    pub fn uds_socket_path(&self) -> Option<&str> {
+        self.transport.uds.as_ref().map(|u| u.socket_path.as_str())
     }
 }

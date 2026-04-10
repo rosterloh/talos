@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
 use ratatui::Frame;
 
-use crate::state::{AppState, Tab};
+use crate::state::{AppState, Tab, TransportType};
 
 pub fn draw(f: &mut Frame, state: &AppState) {
     let chunks = Layout::default()
@@ -54,10 +54,16 @@ fn draw_tab_bar(f: &mut Frame, state: &AppState, area: Rect) {
         .collect();
 
     let connection = if state.connected {
-        Span::styled(" ● connected ", Style::default().fg(Color::Green))
+        let label = match state.transport_type {
+            Some(TransportType::Uds) => " ● connected (uds) ",
+            Some(TransportType::Quic) => " ● connected (quic) ",
+            None => " ● connected ",
+        };
+        Span::styled(label, Style::default().fg(Color::Green))
     } else {
         Span::styled(" ● disconnected ", Style::default().fg(Color::Red))
     };
+    let indicator_width = connection.content.len() as u16;
 
     let tabs = Tabs::new(titles)
         .block(
@@ -79,9 +85,9 @@ fn draw_tab_bar(f: &mut Frame, state: &AppState, area: Rect) {
     // Connection indicator in top-right
     let indicator = Paragraph::new(connection);
     let indicator_area = Rect {
-        x: area.right().saturating_sub(17),
+        x: area.right().saturating_sub(indicator_width),
         y: area.y,
-        width: 17.min(area.width),
+        width: indicator_width.min(area.width),
         height: 1,
     };
     f.render_widget(indicator, indicator_area);

@@ -4,15 +4,16 @@ use rclrs::CreateBasicExecutor;
 use talos_common::config::AgentConfig;
 use talos_common::protocol::messages::Response;
 use talos_common::protocol::types::Timestamp;
-use tokio::sync::broadcast;
+use tokio::sync::Mutex as TokioMutex;
 use tracing::{info, warn};
 
 use crate::JointPublisher;
 use crate::conversions::*;
+use crate::router::TopicRouter;
 
 pub async fn run(
     config: Arc<AgentConfig>,
-    broadcast_tx: broadcast::Sender<Response>,
+    router: Arc<TokioMutex<TopicRouter>>,
     joint_publisher: JointPublisher,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let context = rclrs::Context::default_from_env()?;
@@ -22,7 +23,7 @@ pub async fn run(
     for sub_config in &config.subscriptions {
         let topic = sub_config.topic.clone();
         let type_name = sub_config.msg_type.clone();
-        let tx = broadcast_tx.clone();
+        let router = Arc::clone(&router);
 
         match sub_config.msg_type.as_str() {
             "nav_msgs/msg/Odometry" => {
@@ -33,12 +34,13 @@ pub async fn run(
                     move |msg: nav_msgs::msg::Odometry| {
                         let stamp = timestamp_from_builtin(&msg.header.stamp);
                         let data = odometry_to_dynvalue(&msg);
-                        let _ = tx.send(Response::TopicData {
+                        let response = Response::TopicData {
                             topic: topic_clone.clone(),
                             type_name: type_clone.clone(),
                             stamp,
                             data,
-                        });
+                        };
+                        router.blocking_lock().route(&response);
                     },
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");
@@ -51,12 +53,13 @@ pub async fn run(
                     move |msg: geometry_msgs::msg::Twist| {
                         let stamp = Timestamp { sec: 0, nanosec: 0 };
                         let data = twist_msg_to_dynvalue(&msg);
-                        let _ = tx.send(Response::TopicData {
+                        let response = Response::TopicData {
                             topic: topic_clone.clone(),
                             type_name: type_clone.clone(),
                             stamp,
                             data,
-                        });
+                        };
+                        router.blocking_lock().route(&response);
                     },
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");
@@ -69,12 +72,13 @@ pub async fn run(
                     move |msg: std_msgs::msg::String| {
                         let stamp = Timestamp { sec: 0, nanosec: 0 };
                         let data = string_to_dynvalue(&msg);
-                        let _ = tx.send(Response::TopicData {
+                        let response = Response::TopicData {
                             topic: topic_clone.clone(),
                             type_name: type_clone.clone(),
                             stamp,
                             data,
-                        });
+                        };
+                        router.blocking_lock().route(&response);
                     },
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");
@@ -87,12 +91,13 @@ pub async fn run(
                     move |msg: sensor_msgs::msg::JointState| {
                         let stamp = timestamp_from_builtin(&msg.header.stamp);
                         let data = joint_state_to_dynvalue(&msg);
-                        let _ = tx.send(Response::TopicData {
+                        let response = Response::TopicData {
                             topic: topic_clone.clone(),
                             type_name: type_clone.clone(),
                             stamp,
                             data,
-                        });
+                        };
+                        router.blocking_lock().route(&response);
                     },
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");
@@ -105,12 +110,13 @@ pub async fn run(
                     move |msg: rcl_interfaces::msg::Log| {
                         let stamp = timestamp_from_builtin(&msg.stamp);
                         let data = log_to_dynvalue(&msg);
-                        let _ = tx.send(Response::TopicData {
+                        let response = Response::TopicData {
                             topic: topic_clone.clone(),
                             type_name: type_clone.clone(),
                             stamp,
                             data,
-                        });
+                        };
+                        router.blocking_lock().route(&response);
                     },
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");

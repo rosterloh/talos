@@ -1,20 +1,22 @@
 use std::process;
 
 use clap::{Parser, Subcommand};
-use futures_util::{SinkExt, StreamExt};
-use tokio::net::UnixStream;
-use tokio_util::codec::{FramedRead, FramedWrite};
-
-use talos_common::protocol::codec::BincodeCodec;
 use talos_common::protocol::messages::{Request, Response};
 use talos_common::protocol::types::DynValue;
+use talos_common::session::uds::UdsProtocolClient;
+use talos_common::session::ProtocolClient;
 
 #[derive(Parser)]
 #[command(name = "talos", about = "CLI for the Talos ROS 2 bridge")]
 struct Cli {
-    /// Path to the agent Unix socket
-    #[arg(long, default_value = "/tmp/talos.sock", global = true)]
+    /// Path to the agent Unix socket (mutually exclusive with --remote)
+    #[arg(long, default_value = "/tmp/talos.sock", global = true, conflicts_with = "remote")]
     socket: String,
+
+    /// Remote agent address for QUIC transport, e.g. 192.168.1.50:4433
+    /// (mutually exclusive with --socket)
+    #[arg(long, global = true)]
+    remote: Option<String>,
 
     #[command(subcommand)]
     command: Command,
@@ -47,71 +49,85 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let stream = UnixStream::connect(&cli.socket).await?;
-    let (read_half, write_half) = stream.into_split();
-    let mut reader = FramedRead::new(read_half, BincodeCodec::<Response>::new());
-    let mut writer = FramedWrite::new(write_half, BincodeCodec::<Request>::new());
+    #[cfg(feature = "quic")]
+    if let Some(ref addr) = cli.remote {
+        let client = talos_common::session::QuicProtocolClient::connect(addr).await?;
+        return run_with_client(client, cli.command).await;
+    }
 
-    match cli.command {
+    #[cfg(not(feature = "quic"))]
+    if cli.remote.is_some() {
+        return Err("this build was compiled without QUIC support (--remote not available)".into());
+    }
+
+    let client = UdsProtocolClient::connect(&cli.socket).await?;
+    run_with_client(client, cli.command).await
+}
+
+async fn run_with_client<C: ProtocolClient>(
+    mut client: C,
+    command: Command,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
         Command::ListTopics => {
-            writer.send(Request::ListTopics).await?;
-            if let Some(Ok(response)) = reader.next().await {
-                match response {
-                    Response::TopicList(topics) => {
-                        println!("{:<30} {:<35} {:>4} {:>4}", "TOPIC", "TYPE", "PUB", "SUB");
-                        println!("{}", "-".repeat(75));
-                        for t in &topics {
-                            println!(
-                                "{:<30} {:<35} {:>4} {:>4}",
-                                t.name, t.type_name, t.publisher_count, t.subscriber_count
-                            );
-                        }
-                        println!("\n{} topic(s)", topics.len());
+            let response = client.request(Request::ListTopics).await?;
+            match response {
+                Response::TopicList(topics) => {
+                    println!("{:<30} {:<35} {:>4} {:>4}", "TOPIC", "TYPE", "PUB", "SUB");
+                    println!("{}", "-".repeat(75));
+                    for t in &topics {
+                        println!(
+                            "{:<30} {:<35} {:>4} {:>4}",
+                            t.name, t.type_name, t.publisher_count, t.subscriber_count
+                        );
                     }
-                    Response::Error(e) => eprintln!("error: {e}"),
-                    _ => eprintln!("unexpected response"),
+                    println!("\n{} topic(s)", topics.len());
                 }
+                Response::Error(e) => eprintln!("error: {e}"),
+                _ => eprintln!("unexpected response"),
             }
         }
         Command::ListNodes => {
-            writer.send(Request::ListNodes).await?;
-            if let Some(Ok(response)) = reader.next().await {
-                match response {
-                    Response::NodeList(nodes) => {
-                        println!("{:<30} {:<20}", "NODE", "NAMESPACE");
-                        println!("{}", "-".repeat(52));
-                        for n in &nodes {
-                            println!("{:<30} {:<20}", n.name, n.namespace);
-                        }
-                        println!("\n{} node(s)", nodes.len());
+            let response = client.request(Request::ListNodes).await?;
+            match response {
+                Response::NodeList(nodes) => {
+                    println!("{:<30} {:<20}", "NODE", "NAMESPACE");
+                    println!("{}", "-".repeat(52));
+                    for n in &nodes {
+                        println!("{:<30} {:<20}", n.name, n.namespace);
                     }
-                    Response::Error(e) => eprintln!("error: {e}"),
-                    _ => eprintln!("unexpected response"),
+                    println!("\n{} node(s)", nodes.len());
                 }
+                Response::Error(e) => eprintln!("error: {e}"),
+                _ => eprintln!("unexpected response"),
             }
         }
         Command::Echo { topic, count } => {
-            // We just listen to the broadcast stream from the agent.
-            // The agent already subscribes to configured topics,
-            // so we receive TopicData for matching topics.
+            // Subscribe to the specific topic before listening
+            match client.subscribe(&[topic.clone()]).await {
+                Ok(subs) if subs.is_empty() => {
+                    eprintln!("warning: agent did not confirm subscription to '{topic}'");
+                    eprintln!("(the agent may not be subscribed to this topic)");
+                }
+                Err(e) => {
+                    return Err(format!("failed to subscribe to '{topic}': {e}").into());
+                }
+                _ => {}
+            }
+
             let mut received = 0usize;
-            while let Some(Ok(response)) = reader.next().await {
-                if let Response::TopicData {
-                    topic: ref t,
-                    data: ref value,
-                    ..
-                } = response
-                {
-                    if *t == topic {
-                        print_dynvalue(value, 0);
-                        println!("---");
-                        received += 1;
-                        if count > 0 && received >= count {
-                            break;
-                        }
+            loop {
+                let (recv_topic, frame) = client.recv_data().await?;
+                if recv_topic == topic {
+                    print_dynvalue(&frame.data, 0);
+                    println!("---");
+                    received += 1;
+                    if count > 0 && received >= count {
+                        break;
                     }
                 }
             }
+
             if received == 0 {
                 eprintln!("no data received for topic '{topic}'");
                 eprintln!("(the agent may not be subscribed to this topic)");

@@ -1,6 +1,7 @@
 use super::messages::{Request, Response};
 use super::types::{
-    DynValue, JointInfo, JointLimits, JointType, NodeInfo, PoseInfo, Timestamp, TopicInfo,
+    DynValue, JointInfo, JointLimits, JointType, NodeInfo, PoseInfo, StreamHeader, Timestamp,
+    TopicFrame, TopicInfo, TopicSub,
 };
 
 fn round_trip_request(req: &Request) {
@@ -141,6 +142,85 @@ fn response_pose_list() {
 #[test]
 fn response_error() {
     round_trip_response(&Response::Error("something went wrong".into()));
+}
+
+#[test]
+fn request_subscribe() {
+    round_trip_request(&Request::Subscribe {
+        topics: vec!["/odom".into(), "/joint_states".into()],
+    });
+}
+
+#[test]
+fn request_unsubscribe() {
+    round_trip_request(&Request::Unsubscribe {
+        topics: vec!["/odom".into()],
+    });
+}
+
+#[test]
+fn response_subscribed() {
+    round_trip_response(&Response::Subscribed {
+        topics: vec![
+            TopicSub {
+                topic: "/odom".into(),
+                type_name: "nav_msgs/msg/Odometry".into(),
+            },
+            TopicSub {
+                topic: "/joint_states".into(),
+                type_name: "sensor_msgs/msg/JointState".into(),
+            },
+        ],
+    });
+}
+
+#[test]
+fn response_unsubscribed() {
+    round_trip_response(&Response::Unsubscribed {
+        topics: vec!["/odom".into()],
+    });
+}
+
+#[test]
+fn topic_frame_round_trip() {
+    let frame = TopicFrame {
+        stamp: Timestamp {
+            sec: 100,
+            nanosec: 500_000,
+        },
+        data: DynValue::Struct {
+            type_name: "Point".into(),
+            fields: vec![
+                ("x".into(), DynValue::F64(1.0)),
+                ("y".into(), DynValue::F64(2.0)),
+            ],
+        },
+    };
+    let bytes = bincode::serialize(&frame).expect("serialize");
+    let decoded: TopicFrame = bincode::deserialize(&bytes).expect("deserialize");
+    assert_eq!(frame, decoded);
+}
+
+#[test]
+fn stream_header_round_trip() {
+    let header = StreamHeader {
+        topic: "/odom".into(),
+        type_name: "nav_msgs/msg/Odometry".into(),
+    };
+    let bytes = bincode::serialize(&header).expect("serialize");
+    let decoded: StreamHeader = bincode::deserialize(&bytes).expect("deserialize");
+    assert_eq!(header, decoded);
+}
+
+#[test]
+fn topic_sub_round_trip() {
+    let ts = TopicSub {
+        topic: "/cmd_vel".into(),
+        type_name: "geometry_msgs/msg/Twist".into(),
+    };
+    let bytes = bincode::serialize(&ts).expect("serialize");
+    let decoded: TopicSub = bincode::deserialize(&bytes).expect("deserialize");
+    assert_eq!(ts, decoded);
 }
 
 #[test]

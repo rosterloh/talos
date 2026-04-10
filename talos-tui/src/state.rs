@@ -104,10 +104,19 @@ pub struct JointData {
     pub effort: Option<f64>,
 }
 
+/// Which transport the TUI is currently using.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportType {
+    Uds,
+    Quic,
+}
+
 pub struct AppState {
     pub active_tab: Tab,
     pub active_pane: Pane,
     pub connected: bool,
+    /// Set when connected; drives the transport-type indicator in the status bar.
+    pub transport_type: Option<TransportType>,
     pub show_help: bool,
 
     // Topics tab
@@ -153,6 +162,7 @@ impl Default for AppState {
             active_tab: Tab::Topics,
             active_pane: Pane::Left,
             connected: false,
+            transport_type: None,
             show_help: false,
             topics: HashMap::new(),
             topic_names: Vec::new(),
@@ -268,6 +278,8 @@ impl AppState {
             Response::PoseList(poses) => {
                 self.poses = poses;
             }
+            // These are acknowledgement-only; no UI state update needed.
+            Response::Subscribed { .. } | Response::Unsubscribed { .. } => {}
             Response::Error(_) => {}
         }
     }

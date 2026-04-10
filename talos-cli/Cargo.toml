@@ -6,6 +6,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+quic = ["talos-common/quic"]
+
 [dependencies]
 talos-common = { workspace = true }
 tokio = { workspace = true }

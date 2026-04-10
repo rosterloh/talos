@@ -1,5 +1,10 @@
 pub mod uds;
 
+#[cfg(feature = "quic")]
+pub mod certs;
+#[cfg(feature = "quic")]
+pub mod quic;
+
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::error::Error;
@@ -31,6 +36,7 @@ pub trait TransportServer: Transport + Sized {
     ) -> impl Future<Output = Result<Connection<Self>, Error>> + Send;
 }
 
+/// Configuration for the Unix domain socket transport.
 #[derive(Debug, Clone)]
 pub struct TransportConfig {
     pub socket_path: String,

@@ -18,10 +18,58 @@ use tokio::sync::mpsc;
 
 use state::*;
 
+/// Parse `--socket <path>` and `--remote <addr:port>` from argv.
+fn parse_args(args: &[String]) -> (Option<String>, Option<String>) {
+    let mut socket = None::<String>;
+    let mut remote = None::<String>;
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--socket" | "-s" => {
+                i += 1;
+                if i < args.len() {
+                    socket = Some(args[i].clone());
+                }
+            }
+            "--remote" | "-r" => {
+                i += 1;
+                if i < args.len() {
+                    remote = Some(args[i].clone());
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    (socket, remote)
+}
+
+fn build_client_config(
+    socket_path: Option<String>,
+    remote_addr: Option<String>,
+) -> client::ClientConfig {
+    #[cfg(feature = "quic")]
+    if let Some(addr) = remote_addr {
+        return client::ClientConfig::Quic { addr };
+    }
+    #[cfg(not(feature = "quic"))]
+    if remote_addr.is_some() {
+        eprintln!("error: this build was compiled without QUIC support (--remote not available)");
+        std::process::exit(1);
+    }
+    client::ClientConfig::Uds {
+        socket_path: socket_path.unwrap_or_else(|| "/tmp/talos.sock".to_string()),
+    }
+}
+
 fn main() -> io::Result<()> {
-    let socket_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "/tmp/talos.sock".to_string());
+    let args: Vec<String> = std::env::args().collect();
+    let (socket_path, remote_addr) = parse_args(&args);
+
+    if socket_path.is_some() && remote_addr.is_some() {
+        eprintln!("error: --socket and --remote are mutually exclusive");
+        std::process::exit(1);
+    }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -32,11 +80,13 @@ fn main() -> io::Result<()> {
     let state = Arc::new(Mutex::new(AppState::default()));
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<Request>();
 
+    let client_config = build_client_config(socket_path, remote_addr);
+
     // Spawn IPC client on tokio runtime
     let rt = tokio::runtime::Runtime::new().unwrap();
     let client_state = Arc::clone(&state);
     rt.spawn(async move {
-        client::run(socket_path, client_state, cmd_rx).await;
+        client::run(client_config, client_state, cmd_rx).await;
     });
 
     let result = run_app(&mut terminal, &state, &cmd_tx);

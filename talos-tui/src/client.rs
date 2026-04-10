@@ -1,95 +1,181 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use futures_util::{SinkExt, StreamExt};
-use tokio::net::UnixStream;
-use tokio::sync::mpsc;
-use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::{error, info, warn};
-
-use talos_common::protocol::codec::BincodeCodec;
 use talos_common::protocol::messages::{Request, Response};
+use talos_common::protocol::types::TopicInfo;
+use talos_common::session::uds::UdsProtocolClient;
+use talos_common::session::ProtocolClient;
+use tokio::sync::mpsc;
+use tracing::{info, warn};
 
-use crate::state::AppState;
+use crate::state::{AppState, TransportType};
 
+/// Which transport to use for this session.
+pub enum ClientConfig {
+    Uds { socket_path: String },
+    #[cfg(feature = "quic")]
+    Quic { addr: String },
+}
+
+/// Connect (and reconnect on error) using the given transport configuration.
 pub async fn run(
-    socket_path: String,
+    config: ClientConfig,
     state: Arc<Mutex<AppState>>,
     mut cmd_rx: mpsc::UnboundedReceiver<Request>,
 ) {
     loop {
-        match connect_and_run(&socket_path, &state, &mut cmd_rx).await {
-            Ok(()) => {
-                info!("connection closed");
+        let result = match &config {
+            ClientConfig::Uds { socket_path } => {
+                match UdsProtocolClient::connect(socket_path).await {
+                    Ok(client) => {
+                        {
+                            let mut s = state.lock().unwrap();
+                            s.connected = true;
+                            s.transport_type = Some(TransportType::Uds);
+                        }
+                        info!(path = %socket_path, "connected to agent via UDS");
+                        connect_and_run(client, &state, &mut cmd_rx).await
+                    }
+                    Err(e) => Err(format!("UDS connect failed: {e}")),
+                }
             }
-            Err(e) => {
-                warn!("connection error: {e}");
+            #[cfg(feature = "quic")]
+            ClientConfig::Quic { addr } => {
+                match talos_common::session::QuicProtocolClient::connect(addr).await {
+                    Ok(client) => {
+                        {
+                            let mut s = state.lock().unwrap();
+                            s.connected = true;
+                            s.transport_type = Some(TransportType::Quic);
+                        }
+                        info!(addr = %addr, "connected to agent via QUIC");
+                        connect_and_run(client, &state, &mut cmd_rx).await
+                    }
+                    Err(e) => Err(format!("QUIC connect failed: {e}")),
+                }
             }
-        }
+        };
 
         {
             let mut s = state.lock().unwrap();
             s.connected = false;
+            s.transport_type = None;
         }
 
-        // Reconnect after a delay
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        match result {
+            Ok(()) => info!("connection closed"),
+            Err(e) => warn!("connection error: {e}"),
+        }
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
         info!("reconnecting...");
     }
 }
 
-async fn connect_and_run(
-    socket_path: &str,
+/// Run the protocol session for one connection lifetime.
+///
+/// 1. Sends `ListTopics` and `ListNodes` to populate the UI.
+/// 2. Subscribes to all discovered topics.
+/// 3. Enters a select loop that concurrently handles incoming data frames
+///    and outgoing commands from the UI.
+///
+/// On reconnect, this function is called again with a fresh client.
+async fn connect_and_run<C: ProtocolClient>(
+    mut client: C,
     state: &Arc<Mutex<AppState>>,
     cmd_rx: &mut mpsc::UnboundedReceiver<Request>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let stream = UnixStream::connect(socket_path).await?;
-    let (read_half, write_half) = stream.into_split();
-    let mut reader = FramedRead::new(read_half, BincodeCodec::<Response>::new());
-    let mut writer = FramedWrite::new(write_half, BincodeCodec::<Request>::new());
+) -> Result<(), String> {
+    // ── discover topics ───────────────────────────────────────────────────────
+    let list_resp = client
+        .request(Request::ListTopics)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Collect type info so we can reconstruct it in TopicData frames later
+    let mut type_map: HashMap<String, String> = HashMap::new();
+    let topic_names: Vec<String>;
+
+    if let Response::TopicList(ref topics) = list_resp {
+        for t in topics {
+            type_map.insert(t.name.clone(), t.type_name.clone());
+        }
+        topic_names = topics.iter().map(|t| t.name.clone()).collect();
+    } else {
+        topic_names = Vec::new();
+    }
 
     {
         let mut s = state.lock().unwrap();
-        s.connected = true;
+        s.handle_response(list_resp);
     }
 
-    info!(path = %socket_path, "connected to agent");
-
-    // Request initial data
-    if let Err(e) = writer.send(Request::ListTopics).await {
-        error!("failed to send ListTopics: {e}");
-    }
-    if let Err(e) = writer.send(Request::ListNodes).await {
-        error!("failed to send ListNodes: {e}");
+    // ── list nodes ────────────────────────────────────────────────────────────
+    if let Ok(resp) = client.request(Request::ListNodes).await {
+        let mut s = state.lock().unwrap();
+        s.handle_response(resp);
     }
 
+    // ── subscribe to all discovered topics ────────────────────────────────────
+    if !topic_names.is_empty() {
+        match client.subscribe(&topic_names).await {
+            Ok(subs) => {
+                // Update type_map with confirmed subscriptions (may include type info)
+                for s in &subs {
+                    type_map.insert(s.topic.clone(), s.type_name.clone());
+                }
+                info!("subscribed to {} topics", subs.len());
+            }
+            Err(e) => warn!("initial subscribe failed: {e}"),
+        }
+    }
+
+    // ── main loop ─────────────────────────────────────────────────────────────
     loop {
         tokio::select! {
-            result = reader.next() => {
-                match result {
-                    Some(Ok(response)) => {
+            data_result = client.recv_data() => {
+                match data_result {
+                    Ok((topic, frame)) => {
+                        let type_name = type_map
+                            .get(&topic)
+                            .cloned()
+                            .unwrap_or_default();
+                        let response = Response::TopicData {
+                            topic,
+                            type_name,
+                            stamp: frame.stamp,
+                            data: frame.data,
+                        };
                         let mut s = state.lock().unwrap();
                         s.handle_response(response);
                     }
-                    Some(Err(e)) => {
-                        error!("read error: {e}");
-                        break;
-                    }
-                    None => break,
+                    Err(e) => return Err(e.to_string()),
                 }
             }
             cmd = cmd_rx.recv() => {
                 match cmd {
                     Some(request) => {
-                        if let Err(e) = writer.send(request).await {
-                            error!("failed to send request: {e}");
-                            break;
+                        match client.request(request).await {
+                            Ok(response) => {
+                                let mut s = state.lock().unwrap();
+                                s.handle_response(response);
+                            }
+                            Err(e) => return Err(e.to_string()),
                         }
                     }
-                    None => break,
+                    None => return Ok(()),
                 }
             }
         }
     }
+}
 
-    Ok(())
+/// Extract TopicInfo list from a `TopicList` response.
+#[allow(dead_code)]
+fn extract_topics(resp: &Response) -> Vec<TopicInfo> {
+    if let Response::TopicList(topics) = resp {
+        topics.clone()
+    } else {
+        vec![]
+    }
 }
