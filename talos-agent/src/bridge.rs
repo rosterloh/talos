@@ -4,16 +4,19 @@ use rclrs::CreateBasicExecutor;
 use talos_common::config::AgentConfig;
 use talos_common::protocol::messages::Response;
 use talos_common::protocol::types::Timestamp;
-use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::JointPublisher;
 use crate::conversions::*;
-use crate::router::TopicRouter;
+
+/// Sender half for ROS 2 callbacks to forward topic data to the router task
+/// without blocking on the router lock.
+pub type BridgeSender = mpsc::UnboundedSender<Response>;
 
 pub async fn run(
     config: Arc<AgentConfig>,
-    router: Arc<TokioMutex<TopicRouter>>,
+    bridge_tx: BridgeSender,
     joint_publisher: JointPublisher,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let context = rclrs::Context::default_from_env()?;
@@ -23,7 +26,7 @@ pub async fn run(
     for sub_config in &config.subscriptions {
         let topic = sub_config.topic.clone();
         let type_name = sub_config.msg_type.clone();
-        let router = Arc::clone(&router);
+        let tx = bridge_tx.clone();
 
         match sub_config.msg_type.as_str() {
             "nav_msgs/msg/Odometry" => {
@@ -40,7 +43,7 @@ pub async fn run(
                             stamp,
                             data,
                         };
-                        router.blocking_lock().route(&response);
+                        let _ = tx.send(response);
                     },
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");
@@ -59,7 +62,7 @@ pub async fn run(
                             stamp,
                             data,
                         };
-                        router.blocking_lock().route(&response);
+                        let _ = tx.send(response);
                     },
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");
@@ -78,7 +81,7 @@ pub async fn run(
                             stamp,
                             data,
                         };
-                        router.blocking_lock().route(&response);
+                        let _ = tx.send(response);
                     },
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");
@@ -97,7 +100,7 @@ pub async fn run(
                             stamp,
                             data,
                         };
-                        router.blocking_lock().route(&response);
+                        let _ = tx.send(response);
                     },
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");
@@ -116,7 +119,7 @@ pub async fn run(
                             stamp,
                             data,
                         };
-                        router.blocking_lock().route(&response);
+                        let _ = tx.send(response);
                     },
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");

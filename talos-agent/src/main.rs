@@ -6,7 +6,7 @@ use talos_agent::router::TopicRouter;
 use talos_agent::server::RouterHandle;
 use talos_agent::JointPublisher;
 use talos_common::config::AgentConfig;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info};
 
 #[derive(Parser)]
@@ -84,12 +84,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let quic_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     // ── ROS 2 bridge ─────────────────────────────────────────────────────────
+    // The bridge sends topic data through an mpsc channel instead of locking
+    // the router directly, avoiding blocking_lock() in ROS 2 callbacks.
+    let (bridge_tx, mut bridge_rx) = mpsc::unbounded_channel();
+
+    let forward_handle = {
+        let router = Arc::clone(&router);
+        tokio::spawn(async move {
+            while let Some(response) = bridge_rx.recv().await {
+                router.lock().await.route(&response);
+            }
+        })
+    };
+
     let bridge_handle = {
         let config = Arc::clone(&config);
-        let router = Arc::clone(&router);
         let joint_pub = Arc::clone(&joint_publisher);
         tokio::spawn(async move {
-            if let Err(e) = talos_agent::bridge::run(config, router, joint_pub).await {
+            if let Err(e) = talos_agent::bridge::run(config, bridge_tx, joint_pub).await {
                 error!("bridge error: {e}");
             }
         })
@@ -120,6 +132,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ = bridge_handle => {
             error!("bridge exited unexpectedly");
+        }
+        _ = forward_handle => {
+            error!("bridge→router forwarding task exited unexpectedly");
         }
     }
 
