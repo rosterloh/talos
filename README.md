@@ -1,6 +1,12 @@
 # Talos
 
-A terminal-native tool for observing and interacting with ROS 2 systems. Talos decouples your developer workstation from the ROS 2 runtime — the agent runs on the robot, the TUI and CLI run anywhere.
+[![ROS 2 Kilted](https://img.shields.io/badge/ROS%202-Kilted-blue?logo=ros)](https://docs.ros.org/en/jazzy/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+> A terminal-native tool for observing and interacting with ROS 2 systems. Talos decouples your developer workstation from the ROS 2 runtime — the agent runs on the robot, the TUI and CLI run anywhere.
+
+
+![Main screen](assets/banner.png) 
 
 ```
   Developer machine                       Target device
