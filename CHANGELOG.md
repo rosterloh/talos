@@ -7,6 +7,8 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-28
+
 ### Added
 
 - Add an automated version bump and GitHub release workflow with changelog-backed release notes.
