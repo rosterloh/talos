@@ -7,6 +7,11 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Changed
+
+- Cache mdBook tooling in the Docs workflow to reduce CI time.
+- Update the release workflow so feature development targets `dev` and version bumps run when `dev` is promoted to `main`.
+
 ## [0.1.5] - 2026-04-28
 
 ### Added

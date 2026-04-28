@@ -34,8 +34,10 @@ cd rclrs_ws && pixi run build
 
 ## Default Change Workflow
 
-- Make repository changes on a feature branch, not directly on `main`, unless the user explicitly asks otherwise.
-- After implementing and validating changes, commit them, push the branch, and open a pull request.
+- Keep `main` stable and release-oriented. Do not land day-to-day development directly on `main` unless the user explicitly asks for release maintenance or a hotfix.
+- Make repository changes on feature branches from `dev`, then open pull requests back into `dev`.
+- Promote `dev` to `main` with a pull request when preparing a release; merging `dev` into `main` runs the automated version bump and release workflow.
+- After implementing and validating changes, commit them, push the branch, and open a pull request to the appropriate base branch.
 - Keep unrelated local files out of the commit; do not stage generated output such as `docs/book/`.
 
 ## Architecture

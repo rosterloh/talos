@@ -24,6 +24,10 @@ concurrency:
   group: version-bump-main
   cancel-in-progress: false
 
+env:
+  DEVELOPMENT_BRANCH: dev
+  RELEASE_BRANCH: main
+
 jobs:
   bump-version:
     if: >-
@@ -40,23 +44,65 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check release source
+        id: release_source
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          pr_info="$(
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+              --jq 'if length > 0 then .[0] | [.number, .head.ref, .base.ref, .head.repo.full_name] | @tsv else "" end' \
+              2>/dev/null || true
+          )"
+
+          pr_number=""
+          head_ref=""
+          base_ref=""
+          head_repo=""
+
+          if [ -n "$pr_info" ]; then
+            IFS=$'\t' read -r pr_number head_ref base_ref head_repo <<< "$pr_info"
+          fi
+
+          if [ "$head_ref" = "$DEVELOPMENT_BRANCH" ] &&
+             [ "$base_ref" = "$RELEASE_BRANCH" ] &&
+             [ "$head_repo" = "$GITHUB_REPOSITORY" ]; then
+            echo "should_bump=true" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+            echo "Version bump enabled for ${DEVELOPMENT_BRANCH} -> ${RELEASE_BRANCH} PR #${pr_number}"
+          else
+            echo "should_bump=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping version bump. Expected ${DEVELOPMENT_BRANCH} -> ${RELEASE_BRANCH}; got ${head_repo:-unknown}:${head_ref:-unknown} -> ${base_ref:-unknown}."
+          fi
+
       - name: Choose bump kind
         id: bump
+        if: github.event_name == 'workflow_dispatch' || steps.release_source.outputs.should_bump == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           BUMP_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.bump || '' }}
+          PR_NUMBER: ${{ steps.release_source.outputs.pr_number }}
         run: |
           set -euo pipefail
 
           bump="${BUMP_INPUT:-}"
 
           if [ -z "$bump" ]; then
-            labels="$(
-              gh api \
-                -H "Accept: application/vnd.github+json" \
-                "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
-                --jq '.[0].labels[].name' 2>/dev/null || true
-            )"
+            if [ -n "${PR_NUMBER:-}" ]; then
+              labels="$(
+                gh api \
+                  -H "Accept: application/vnd.github+json" \
+                  "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+                  --jq '.labels[].name' 2>/dev/null || true
+              )"
+            else
+              labels=""
+            fi
 
             if printf '%s\n' "$labels" | grep -Fxq "version:major"; then
               bump="major"
@@ -72,9 +118,11 @@ jobs:
 
       - name: Bump workspace version
         id: version
+        if: github.event_name == 'workflow_dispatch' || steps.release_source.outputs.should_bump == 'true'
         run: .github/scripts/bump_version.py "${{ steps.bump.outputs.kind }}"
 
       - name: Prepare changelog release notes
+        if: github.event_name == 'workflow_dispatch' || steps.release_source.outputs.should_bump == 'true'
         run: |
           set -euo pipefail
           .github/scripts/changelog_release.py prepare \
@@ -82,6 +130,7 @@ jobs:
             --notes-file "$RUNNER_TEMP/release-notes.md"
 
       - name: Date changelog release
+        if: github.event_name == 'workflow_dispatch' || steps.release_source.outputs.should_bump == 'true'
         run: |
           set -euo pipefail
           .github/scripts/changelog_release.py finalize \
@@ -89,6 +138,7 @@ jobs:
             --date "$(date -u +%F)"
 
       - name: Commit version bump
+        if: github.event_name == 'workflow_dispatch' || steps.release_source.outputs.should_bump == 'true'
         run: |
           set -euo pipefail
 
@@ -106,6 +156,7 @@ jobs:
           git push
 
       - name: Create GitHub release
+        if: github.event_name == 'workflow_dispatch' || steps.release_source.outputs.should_bump == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

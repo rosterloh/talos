@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
   pull_request:
   workflow_dispatch:
 
@@ -26,11 +27,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Cache mdBook tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/mdbook
+            ~/.cargo/bin/mdbook-mermaid
+          key: >-
+            mdbook-tools-${{ runner.os }}-${{ env.MDBOOK_VERSION }}-${{
+            env.MDBOOK_MERMAID_VERSION }}
+
       - name: Install mdBook
-        run: cargo install mdbook --version "${MDBOOK_VERSION}" --locked
+        run: |
+          current="$(mdbook --version 2>/dev/null || true)"
+          if [ "$current" != "mdbook v${MDBOOK_VERSION}" ]; then
+            cargo install mdbook --version "${MDBOOK_VERSION}" --locked
+          fi
 
       - name: Install mdBook Mermaid
-        run: cargo install mdbook-mermaid --version "${MDBOOK_MERMAID_VERSION}" --locked
+        run: |
+          current="$(mdbook-mermaid --version 2>/dev/null || true)"
+          if [ "$current" != "mdbook-mermaid ${MDBOOK_MERMAID_VERSION}" ]; then
+            cargo install mdbook-mermaid --version "${MDBOOK_MERMAID_VERSION}" --locked
+          fi
 
       - name: Build book
         run: mdbook build docs
