@@ -24,8 +24,6 @@ pub async fn run(
     let mut executor = context.create_basic_executor();
     let node = executor.create_node("talos_agent")?;
 
-    *graph_handle.lock().await = Some(Arc::clone(&node));
-
     for sub_config in &config.subscriptions {
         let topic = sub_config.topic.clone();
         let type_name = sub_config.msg_type.clone();
@@ -139,8 +137,12 @@ pub async fn run(
         *joint_publisher.lock().await = Some(publisher);
     }
 
+    *graph_handle.lock().await = Some(Arc::clone(&node));
+
     info!("rclrs node spinning");
     executor.spin(rclrs::SpinOptions::default());
+
+    *graph_handle.lock().await = None;
 
     Ok(())
 }

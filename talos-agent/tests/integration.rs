@@ -10,11 +10,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use talos_common::config::{AgentConfig, SubscriptionConfig, TransportSettings, UdsTransportConfig};
+use talos_common::config::{
+    AgentConfig, SubscriptionConfig, TransportSettings, UdsTransportConfig,
+};
 use talos_common::protocol::messages::{Request, Response};
 use talos_common::protocol::types::{DynValue, Timestamp};
-use talos_common::session::uds::UdsProtocolClient;
 use talos_common::session::ProtocolClient;
+use talos_common::session::uds::UdsProtocolClient;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 
@@ -149,6 +151,69 @@ async fn uds_list_poses_returns_configured_poses() {
     }
 }
 
+#[cfg(feature = "quic")]
+#[tokio::test]
+async fn quic_list_poses_returns_configured_poses() {
+    use talos_common::config::QuicTransportConfig;
+    use talos_common::session::QuicProtocolClient;
+    use talos_common::transport::quic::QuicTransport;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir
+        .path()
+        .join("poses-quic.sock")
+        .to_string_lossy()
+        .into_owned();
+
+    let mut config = (*test_config_uds(&path)).clone();
+    config.transport.quic = Some(QuicTransportConfig {
+        bind_addr: "127.0.0.1:0".to_string(),
+        cert_path: None,
+        key_path: None,
+    });
+    let config = Arc::new(config);
+    let router = make_router();
+
+    let quic_cfg = config.transport.quic.as_ref().unwrap();
+    let endpoint = QuicTransport::bind(quic_cfg).await.unwrap();
+    let quic_addr = endpoint.local_addr().unwrap();
+
+    {
+        let r = Arc::clone(&router);
+        let jp = make_joint_publisher();
+        let cfg = Arc::clone(&config);
+        tokio::spawn(async move {
+            while let Some(inc) = endpoint.accept().await {
+                if let Ok(conn) = inc.await {
+                    let r2 = Arc::clone(&r);
+                    let j2 = Arc::clone(&jp);
+                    let cfg2 = Arc::clone(&cfg);
+                    let graph = make_graph_handle();
+                    tokio::spawn(talos_agent::server::handle_quic_client(
+                        conn, cfg2, r2, j2, graph,
+                    ));
+                }
+            }
+        });
+    }
+
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    let mut client = QuicProtocolClient::connect(&quic_addr.to_string())
+        .await
+        .unwrap();
+    let response = client.request(Request::ListPoses).await.unwrap();
+
+    match response {
+        Response::PoseList(poses) => {
+            assert_eq!(poses.len(), 1);
+            assert_eq!(poses[0].name, "home");
+            assert_eq!(poses[0].positions.len(), 2);
+        }
+        other => panic!("unexpected response: {other:?}"),
+    }
+}
+
 // ── 8.2: QUIC client subscribes and receives data on uni streams ─────────────
 
 #[cfg(feature = "quic")]
@@ -207,7 +272,9 @@ async fn quic_client_subscribes_and_receives_data() {
 
     tokio::time::sleep(Duration::from_millis(80)).await;
 
-    let mut client = QuicProtocolClient::connect(&quic_addr.to_string()).await.unwrap();
+    let mut client = QuicProtocolClient::connect(&quic_addr.to_string())
+        .await
+        .unwrap();
     client.subscribe(&["/odom".to_string()]).await.unwrap();
 
     // Give the server time to open the uni stream
@@ -237,7 +304,9 @@ async fn dual_mode_agent_serves_uds_and_quic() {
 
     let config = Arc::new(AgentConfig {
         transport: TransportSettings {
-            uds: Some(UdsTransportConfig { socket_path: path.clone() }),
+            uds: Some(UdsTransportConfig {
+                socket_path: path.clone(),
+            }),
             quic: Some(QuicTransportConfig {
                 bind_addr: "127.0.0.1:0".to_string(),
                 cert_path: None,
@@ -295,15 +364,23 @@ async fn dual_mode_agent_serves_uds_and_quic() {
     let mut uds = UdsProtocolClient::connect(&path).await.unwrap();
     uds.subscribe(&["/odom".to_string()]).await.unwrap();
 
-    let mut quic = QuicProtocolClient::connect(&quic_addr.to_string()).await.unwrap();
+    let mut quic = QuicProtocolClient::connect(&quic_addr.to_string())
+        .await
+        .unwrap();
     quic.subscribe(&["/odom".to_string()]).await.unwrap();
 
     tokio::time::sleep(Duration::from_millis(50)).await;
     inject(&router, "/odom");
 
     let timeout = Duration::from_secs(2);
-    let (t_uds, _) = tokio::time::timeout(timeout, uds.recv_data()).await.unwrap().unwrap();
-    let (t_quic, _) = tokio::time::timeout(timeout, quic.recv_data()).await.unwrap().unwrap();
+    let (t_uds, _) = tokio::time::timeout(timeout, uds.recv_data())
+        .await
+        .unwrap()
+        .unwrap();
+    let (t_quic, _) = tokio::time::timeout(timeout, quic.recv_data())
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(t_uds, "/odom");
     assert_eq!(t_quic, "/odom");
@@ -337,8 +414,7 @@ async fn uds_unsubscribe_stops_data_delivery() {
 
     // Inject another frame — should not be delivered
     inject(&router, "/odom");
-    let result =
-        tokio::time::timeout(Duration::from_millis(200), client.recv_data()).await;
+    let result = tokio::time::timeout(Duration::from_millis(200), client.recv_data()).await;
     assert!(
         result.is_err(),
         "recv_data should have timed out after unsubscribe, but got a frame"
