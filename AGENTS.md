@@ -32,6 +32,12 @@ cargo test -p talos-agent --test integration --features quic  # + QUIC tests
 cd rclrs_ws && pixi run build
 ```
 
+## Default Change Workflow
+
+- Make repository changes on a feature branch, not directly on `main`, unless the user explicitly asks otherwise.
+- After implementing and validating changes, commit them, push the branch, and open a pull request.
+- Keep unrelated local files out of the commit; do not stage generated output such as `docs/book/`.
+
 ## Architecture
 
 ```
@@ -71,9 +77,16 @@ The agent reads `talos-agent.toml` (or path via `--config`). Key sections:
 - `[control]` — optional joint command publishing
 - `[poses.<name>]` — named joint position presets
 
-## OpenSpec Workflow
+## Documentation
 
-The `openspec/` directory tracks architectural specs and change proposals. Use the `/opsx:propose`, `/opsx:apply`, `/opsx:archive`, and `/opsx:explore` skills to manage the spec-driven workflow.
+The `docs/` mdBook is the canonical project documentation. Keep current behavior, architecture, usage, configuration, design history, and future plans there. `README.md` should stay short and point readers to the book.
+
+Build and preview docs with:
+
+```bash
+mdbook build docs
+mdbook serve docs
+```
 
 ## Changelog Discipline
 
