@@ -8,11 +8,15 @@ description = "Terminal-native ROS 2 observation and interaction tools."
 [build]
 build-dir = "book"
 
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
 [output.html]
 git-repository-url = "https://github.com/rosterloh/talos"
 edit-url-template = "https://github.com/rosterloh/talos/edit/main/docs/{path}"
 default-theme = "ayu"
 preferred-dark-theme = "ayu"
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
 
 [output.html.search]
 enable = true

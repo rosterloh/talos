@@ -7,6 +7,14 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Added
+
+- Add Mermaid rendering support for mdBook diagrams.
+
+### Changed
+
+- Convert the introduction and architecture overview diagrams to Mermaid flowcharts.
+
 ## [0.1.4] - 2026-04-28
 
 - No notable changes recorded.
