@@ -10,6 +10,7 @@ those entries into the versioned section when a release is created.
 ### Added
 
 - Add an automated version bump and GitHub release workflow with changelog-backed release notes.
+- Consolidate repository agent guidance in `AGENTS.md` and keep `CLAUDE.md` as a symlink for compatibility.
 
 ## [0.1.0] - TBD
 
