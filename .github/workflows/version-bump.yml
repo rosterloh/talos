@@ -1,0 +1,124 @@
+name: Version bump
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version component to bump
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: version-bump-main
+  cancel-in-progress: false
+
+jobs:
+  bump-version:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.actor != 'github-actions[bot]' &&
+        !startsWith(github.event.head_commit.message, 'chore: bump version')
+      )
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Choose bump kind
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUMP_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.bump || '' }}
+        run: |
+          set -euo pipefail
+
+          bump="${BUMP_INPUT:-}"
+
+          if [ -z "$bump" ]; then
+            labels="$(
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+                --jq '.[0].labels[].name' 2>/dev/null || true
+            )"
+
+            if printf '%s\n' "$labels" | grep -Fxq "version:major"; then
+              bump="major"
+            elif printf '%s\n' "$labels" | grep -Fxq "version:minor"; then
+              bump="minor"
+            else
+              bump="patch"
+            fi
+          fi
+
+          echo "kind=$bump" >> "$GITHUB_OUTPUT"
+          echo "Using $bump version bump"
+
+      - name: Bump workspace version
+        id: version
+        run: .github/scripts/bump_version.py "${{ steps.bump.outputs.kind }}"
+
+      - name: Prepare changelog release notes
+        run: |
+          set -euo pipefail
+          .github/scripts/changelog_release.py prepare \
+            "${{ steps.version.outputs.version }}" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+
+      - name: Date changelog release
+        run: |
+          set -euo pipefail
+          .github/scripts/changelog_release.py finalize \
+            "${{ steps.version.outputs.version }}" \
+            --date "$(date -u +%F)"
+
+      - name: Commit version bump
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+
+          if git diff --cached --quiet; then
+            echo "No version changes to commit"
+            exit 0
+          fi
+
+          git commit -m "chore: bump version to v${{ steps.version.outputs.version }}"
+          git push
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          tag="v${{ steps.version.outputs.version }}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists"
+            exit 0
+          fi
+
+          gh release create "$tag" \
+            --title "$tag" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --target "$(git rev-parse HEAD)"
