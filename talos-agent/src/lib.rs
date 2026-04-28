@@ -16,3 +16,8 @@ use tokio::sync::Mutex;
 /// Handle to an optional `rclrs` joint-state publisher shared between the
 /// bridge task (writer) and the request handler (reader).
 pub type JointPublisher = Arc<Mutex<Option<rclrs::Publisher<sensor_msgs::msg::JointState>>>>;
+
+/// Handle to the bridge node for ROS graph queries. The bridge fills this in
+/// after node creation; request handlers fall back to config-only data before
+/// that point.
+pub type GraphHandle = Arc<Mutex<Option<rclrs::Node>>>;

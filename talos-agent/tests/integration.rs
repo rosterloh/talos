@@ -6,11 +6,12 @@
 //! Run with QUIC:
 //!   cargo test -p talos-agent --test integration --features quic
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use talos_common::config::{AgentConfig, SubscriptionConfig, TransportSettings, UdsTransportConfig};
-use talos_common::protocol::messages::Response;
+use talos_common::protocol::messages::{Request, Response};
 use talos_common::protocol::types::{DynValue, Timestamp};
 use talos_common::session::uds::UdsProtocolClient;
 use talos_common::session::ProtocolClient;
@@ -19,7 +20,7 @@ use tokio::sync::Mutex;
 
 use talos_agent::router::TopicRouter;
 use talos_agent::server::RouterHandle;
-use talos_agent::JointPublisher;
+use talos_agent::{GraphHandle, JointPublisher};
 
 /// Minimal `AgentConfig` with two configured subscriptions.
 fn test_config_uds(socket_path: &str) -> Arc<AgentConfig> {
@@ -41,7 +42,14 @@ fn test_config_uds(socket_path: &str) -> Arc<AgentConfig> {
             },
         ],
         control: None,
-        poses: Default::default(),
+        poses: {
+            let mut poses = HashMap::new();
+            poses.insert(
+                "home".to_string(),
+                HashMap::from([("joint_a".to_string(), 0.0), ("joint_b".to_string(), 1.0)]),
+            );
+            poses
+        },
     })
 }
 
@@ -66,14 +74,19 @@ fn make_joint_publisher() -> JointPublisher {
     Arc::new(Mutex::new(None))
 }
 
+fn make_graph_handle() -> GraphHandle {
+    Arc::new(Mutex::new(None))
+}
+
 /// Spawn the UDS server in the background and return its router handle.
 async fn spawn_uds_server(config: Arc<AgentConfig>) -> RouterHandle {
     let router = make_router();
     let jp = make_joint_publisher();
+    let graph = make_graph_handle();
     let r = Arc::clone(&router);
     let jp2 = Arc::clone(&jp);
     tokio::spawn(async move {
-        let _ = talos_agent::server::run(config, r, jp2).await;
+        let _ = talos_agent::server::run(config, r, jp2, graph).await;
     });
     // Give the listener time to bind
     tokio::time::sleep(Duration::from_millis(80)).await;
@@ -113,6 +126,27 @@ async fn uds_subscriber_receives_only_subscribed_topics() {
         .expect("timed out on frame 2")
         .expect("recv_data error");
     assert_eq!(t2, "/odom", "expected /odom on frame 2, got {t2}");
+}
+
+#[tokio::test]
+async fn uds_list_poses_returns_configured_poses() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("poses.sock").to_string_lossy().into_owned();
+
+    let config = test_config_uds(&path);
+    spawn_uds_server(config).await;
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+    let response = client.request(Request::ListPoses).await.unwrap();
+
+    match response {
+        Response::PoseList(poses) => {
+            assert_eq!(poses.len(), 1);
+            assert_eq!(poses[0].name, "home");
+            assert_eq!(poses[0].positions.len(), 2);
+        }
+        other => panic!("unexpected response: {other:?}"),
+    }
 }
 
 // ── 8.2: QUIC client subscribes and receives data on uni streams ─────────────
@@ -162,9 +196,10 @@ async fn quic_client_subscribes_and_receives_data() {
                     let r2 = Arc::clone(&r);
                     let j2 = Arc::clone(&jp);
                     let cfg2 = Arc::clone(&cfg);
-                    tokio::spawn(
-                        talos_agent::server::handle_quic_client(conn, cfg2, r2, j2),
-                    );
+                    let graph = make_graph_handle();
+                    tokio::spawn(talos_agent::server::handle_quic_client(
+                        conn, cfg2, r2, j2, graph,
+                    ));
                 }
             }
         });
@@ -224,7 +259,10 @@ async fn dual_mode_agent_serves_uds_and_quic() {
         let r = Arc::clone(&router);
         let jp = make_joint_publisher();
         let cfg = Arc::clone(&config);
-        tokio::spawn(async move { let _ = talos_agent::server::run(cfg, r, jp).await; });
+        let graph = make_graph_handle();
+        tokio::spawn(async move {
+            let _ = talos_agent::server::run(cfg, r, jp, graph).await;
+        });
     }
 
     // QUIC server
@@ -241,7 +279,10 @@ async fn dual_mode_agent_serves_uds_and_quic() {
                     let r2 = Arc::clone(&r);
                     let j2 = Arc::clone(&jp);
                     let cfg2 = Arc::clone(&cfg);
-                    tokio::spawn(talos_agent::server::handle_quic_client(conn, cfg2, r2, j2));
+                    let graph = make_graph_handle();
+                    tokio::spawn(talos_agent::server::handle_quic_client(
+                        conn, cfg2, r2, j2, graph,
+                    ));
                 }
             }
         });

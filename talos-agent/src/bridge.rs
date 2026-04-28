@@ -7,8 +7,8 @@ use talos_common::protocol::types::Timestamp;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::JointPublisher;
 use crate::conversions::*;
+use crate::{GraphHandle, JointPublisher};
 
 /// Sender half for ROS 2 callbacks to forward topic data to the router task
 /// without blocking on the router lock.
@@ -18,10 +18,13 @@ pub async fn run(
     config: Arc<AgentConfig>,
     bridge_tx: BridgeSender,
     joint_publisher: JointPublisher,
+    graph_handle: GraphHandle,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let context = rclrs::Context::default_from_env()?;
     let mut executor = context.create_basic_executor();
     let node = executor.create_node("talos_agent")?;
+
+    *graph_handle.lock().await = Some(Arc::clone(&node));
 
     for sub_config in &config.subscriptions {
         let topic = sub_config.topic.clone();
