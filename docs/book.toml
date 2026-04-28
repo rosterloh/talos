@@ -1,0 +1,18 @@
+[book]
+title = "Talos"
+authors = ["Richard Osterloh"]
+language = "en"
+src = "src"
+description = "Terminal-native ROS 2 observation and interaction tools."
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/rosterloh/talos"
+edit-url-template = "https://github.com/rosterloh/talos/edit/main/docs/{path}"
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
+
+[output.html.search]
+enable = true

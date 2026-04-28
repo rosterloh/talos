@@ -7,6 +7,21 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Added
+
+- Add canonical mdBook documentation under `docs/` with current behavior, design history, and future plans.
+- Add a GitHub Actions workflow to build and publish the mdBook to GitHub Pages.
+
+### Changed
+
+- Shorten `README.md` to a project overview that links to the mdBook.
+- Replace legacy spec workflow guidance with mdBook documentation guidance.
+- Document the default branch-and-pull-request workflow for repository changes.
+
+### Removed
+
+- Remove the legacy spec source tree after migrating its useful content into the mdBook.
+
 ## [0.1.2] - 2026-04-28
 
 - No notable changes recorded.
