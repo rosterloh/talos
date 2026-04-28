@@ -7,6 +7,10 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-28
+
+- No notable changes recorded.
+
 ## [0.1.1] - 2026-04-28
 
 ### Added
