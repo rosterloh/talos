@@ -7,6 +7,8 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-04-28
+
 ### Added
 
 - Add Mermaid rendering support for mdBook diagrams.
