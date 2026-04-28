@@ -8,12 +8,24 @@ The robot runs `talos-agent`, which talks to ROS 2 through `rclrs`. Developer
 machines run `talos-tui` or `talos-cli`, which connect to the agent over Unix
 domain sockets for local use or QUIC for remote use.
 
-```text
-Developer machine                      Target device
+```mermaid
+flowchart LR
+    subgraph Workstation["Developer machine"]
+        TUI["talos-tui"]
+        CLI["talos-cli"]
+        NoROS["No ROS 2 runtime needed"]
+    end
 
-talos-tui                              talos-agent
-talos-cli          UDS or QUIC         rclrs
-no ROS 2 needed  <------------->       ROS 2 graph
+    subgraph Target["Target device"]
+        Agent["talos-agent"]
+        Rclrs["rclrs"]
+        ROS["ROS 2 graph"]
+    end
+
+    TUI -->|"UDS or QUIC"| Agent
+    CLI -->|"UDS or QUIC"| Agent
+    Agent --> Rclrs
+    Rclrs --> ROS
 ```
 
 Only the agent depends on ROS 2. The shared protocol, CLI, and TUI build and run

@@ -2,14 +2,24 @@
 
 Talos has a strict dependency boundary around ROS 2:
 
-```text
-talos-cli
-    |
-    v
-talos-common <--- talos-agent ---> rclrs / ROS 2
-    ^
-    |
-talos-tui
+```mermaid
+flowchart LR
+    subgraph Clients["Workstation tools"]
+        CLI["talos-cli"]
+        TUI["talos-tui"]
+    end
+
+    Common["talos-common<br/>protocol, config, transports"]
+
+    subgraph Runtime["Robot runtime"]
+        Agent["talos-agent"]
+        ROS["rclrs / ROS 2"]
+    end
+
+    CLI -->|"uses"| Common
+    TUI -->|"uses"| Common
+    Agent -->|"uses"| Common
+    Agent -->|"links to"| ROS
 ```
 
 `talos-common` is the shared base. It defines the protocol types, bincode
