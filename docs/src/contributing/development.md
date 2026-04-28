@@ -1,5 +1,16 @@
 # Development
 
+## Branching And Releases
+
+`main` is the stable release branch. Use `dev` for ongoing integration work.
+Create feature branches from `dev` and open pull requests back into `dev`.
+
+When `dev` is ready to release, open a pull request from `dev` to `main`.
+Merging that pull request runs the version bump workflow, promotes
+`CHANGELOG.md` entries from `[Unreleased]`, and creates the GitHub release. Add
+`version:minor` or `version:major` to the `dev` -> `main` pull request when the
+release should be larger than a patch bump.
+
 ## Workspace Checks
 
 Without ROS 2:

@@ -1,8 +1,13 @@
 # Versioning
 
-Merges to `main` automatically bump the Cargo workspace patch version, promote
-the `[Unreleased]` changelog entries into the new version, and create a GitHub
-release using those changelog entries as the release notes.
+`main` is the stable release branch. Day-to-day development lands on `dev`,
+and feature branches should be opened against `dev`.
+
+Merging `dev` into `main` automatically bumps the Cargo workspace patch
+version, promotes the `[Unreleased]` changelog entries into the new version,
+and creates a GitHub release using those changelog entries as the release
+notes. Other pushes to `main` do not bump the version unless the workflow is
+run manually.
 
 To request a larger bump, add one of these labels to the pull request before
 merging:
@@ -21,4 +26,5 @@ If branch protection blocks direct workflow pushes to `main`, allow the
 `github-actions[bot]` actor to create version bump commits.
 
 Future work should add a `CHANGELOG.md` entry under `[Unreleased]` before
-merging so the generated release notes are useful.
+merging to `dev` so the generated release notes are useful when `dev` is
+promoted to `main`.
