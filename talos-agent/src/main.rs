@@ -4,7 +4,7 @@ use std::sync::Arc;
 use clap::Parser;
 use talos_agent::router::TopicRouter;
 use talos_agent::server::RouterHandle;
-use talos_agent::JointPublisher;
+use talos_agent::{GraphHandle, JointPublisher};
 use talos_common::config::AgentConfig;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info};
@@ -46,6 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let router: RouterHandle = Arc::new(Mutex::new(TopicRouter::new()));
     let joint_publisher: JointPublisher = Arc::new(Mutex::new(None));
+    let graph_handle: GraphHandle = Arc::new(Mutex::new(None));
 
     let shutdown = tokio::signal::ctrl_c();
 
@@ -54,8 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let config = Arc::clone(&config);
         let router = Arc::clone(&router);
         let joint_pub = Arc::clone(&joint_publisher);
+        let graph = Arc::clone(&graph_handle);
         let h = tokio::spawn(async move {
-            if let Err(e) = talos_agent::server::run(config, router, joint_pub).await {
+            if let Err(e) = talos_agent::server::run(config, router, joint_pub, graph).await {
                 error!("UDS server error: {e}");
             }
         });
@@ -70,8 +72,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let config = Arc::clone(&config);
         let router = Arc::clone(&router);
         let joint_pub = Arc::clone(&joint_publisher);
+        let graph = Arc::clone(&graph_handle);
         let h = tokio::spawn(async move {
-            if let Err(e) = talos_agent::server::run_quic(config, router, joint_pub).await {
+            if let Err(e) = talos_agent::server::run_quic(config, router, joint_pub, graph).await {
                 error!("QUIC server error: {e}");
             }
         });
@@ -100,8 +103,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bridge_handle = {
         let config = Arc::clone(&config);
         let joint_pub = Arc::clone(&joint_publisher);
+        let graph = Arc::clone(&graph_handle);
         tokio::spawn(async move {
-            if let Err(e) = talos_agent::bridge::run(config, bridge_tx, joint_pub).await {
+            if let Err(e) = talos_agent::bridge::run(config, bridge_tx, joint_pub, graph).await {
                 error!("bridge error: {e}");
             }
         })

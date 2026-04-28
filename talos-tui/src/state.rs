@@ -279,7 +279,7 @@ impl AppState {
                 self.poses = poses;
             }
             // These are acknowledgement-only; no UI state update needed.
-            Response::Subscribed { .. } | Response::Unsubscribed { .. } => {}
+            Response::Subscribed { .. } | Response::Unsubscribed { .. } | Response::Ok(_) => {}
             Response::Error(_) => {}
         }
     }

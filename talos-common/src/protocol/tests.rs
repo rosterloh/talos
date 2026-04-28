@@ -27,6 +27,11 @@ fn request_list_nodes() {
 }
 
 #[test]
+fn request_list_poses() {
+    round_trip_request(&Request::ListPoses);
+}
+
+#[test]
 fn request_set_joint_position() {
     round_trip_request(&Request::SetJointPosition {
         joint: "shoulder_pan".into(),
@@ -142,6 +147,11 @@ fn response_pose_list() {
 #[test]
 fn response_error() {
     round_trip_response(&Response::Error("something went wrong".into()));
+}
+
+#[test]
+fn response_ok() {
+    round_trip_response(&Response::Ok("done".into()));
 }
 
 #[test]

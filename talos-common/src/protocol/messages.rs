@@ -6,6 +6,7 @@ use super::types::{DynValue, NodeInfo, PoseInfo, Timestamp, TopicInfo, TopicSub}
 pub enum Request {
     ListTopics,
     ListNodes,
+    ListPoses,
     SetJointPosition { joint: String, position: f64 },
     ExecutePose { name: String },
     Subscribe { topics: Vec<String> },
@@ -25,5 +26,6 @@ pub enum Response {
     PoseList(Vec<PoseInfo>),
     Subscribed { topics: Vec<TopicSub> },
     Unsubscribed { topics: Vec<String> },
+    Ok(String),
     Error(String),
 }

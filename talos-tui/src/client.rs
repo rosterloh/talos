@@ -116,6 +116,12 @@ async fn connect_and_run<C: ProtocolClient>(
         s.handle_response(resp);
     }
 
+    // ── list configured poses ────────────────────────────────────────────────
+    if let Ok(resp) = client.request(Request::ListPoses).await {
+        let mut s = state.lock().unwrap();
+        s.handle_response(resp);
+    }
+
     // ── subscribe to all discovered topics ────────────────────────────────────
     if !topic_names.is_empty() {
         match client.subscribe(&topic_names).await {
