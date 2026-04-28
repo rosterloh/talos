@@ -7,6 +7,8 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-28
+
 ### Added
 
 - Add canonical mdBook documentation under `docs/` with current behavior, design history, and future plans.
