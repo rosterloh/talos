@@ -11,6 +11,7 @@ those entries into the versioned section when a release is created.
 
 - Add canonical mdBook documentation under `docs/` with current behavior, design history, and future plans.
 - Add a GitHub Actions workflow to build and publish the mdBook to GitHub Pages.
+- Add Dependabot version updates for Cargo dependencies and GitHub Actions.
 
 ### Changed
 
