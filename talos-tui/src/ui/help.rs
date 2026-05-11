@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-use ratatui::Frame;
 
 pub fn draw(f: &mut Frame, area: Rect) {
     let popup_area = centered_rect(60, 70, area);
@@ -35,6 +35,17 @@ pub fn draw(f: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  ←/→      ", Style::default().fg(Color::Yellow)),
             Span::raw("Collapse / expand tree"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Topics Tab",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  s        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Toggle selected topic subscription (either pane)"),
         ]),
         Line::from(""),
         Line::from(Span::styled(

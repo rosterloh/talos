@@ -279,9 +279,7 @@ async fn write_quic_frame<T: Serialize>(
     let mut buf = BytesMut::with_capacity(4 + payload.len());
     buf.put_u32(len);
     buf.put_slice(&payload);
-    send.write_all(&buf)
-        .await
-        .map_err(|e| e.to_string())
+    send.write_all(&buf).await.map_err(|e| e.to_string())
 }
 
 // ── Request dispatching ───────────────────────────────────────────────────────

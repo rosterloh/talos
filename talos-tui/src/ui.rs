@@ -4,11 +4,11 @@ mod log_tab;
 mod nodes_tab;
 mod topics_tab;
 
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
-use ratatui::Frame;
 
 use crate::state::{AppState, Tab, TransportType};
 
@@ -17,7 +17,7 @@ pub fn draw(f: &mut Frame, state: &AppState) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Tab bar
-            Constraint::Min(0),   // Content
+            Constraint::Min(0),    // Content
             Constraint::Length(1), // Status bar
         ])
         .split(f.area());
@@ -44,10 +44,7 @@ fn draw_tab_bar(f: &mut Frame, state: &AppState, area: Rect) {
         .enumerate()
         .map(|(i, tab)| {
             Line::from(vec![
-                Span::styled(
-                    format!("[{}]", i + 1),
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled(format!("[{}]", i + 1), Style::default().fg(Color::DarkGray)),
                 Span::raw(tab.label()),
             ])
         })
@@ -56,6 +53,7 @@ fn draw_tab_bar(f: &mut Frame, state: &AppState, area: Rect) {
     let connection = if state.connected {
         let label = match state.transport_type {
             Some(TransportType::Uds) => " ● connected (uds) ",
+            #[cfg(feature = "quic")]
             Some(TransportType::Quic) => " ● connected (quic) ",
             None => " ● connected ",
         };
@@ -95,7 +93,9 @@ fn draw_tab_bar(f: &mut Frame, state: &AppState, area: Rect) {
 
 fn draw_status_bar(f: &mut Frame, state: &AppState, area: Rect) {
     let hints = match state.active_tab {
-        Tab::Topics => "↑↓ navigate  Enter select  ←→ expand/collapse  Tab pane  q quit  ? help",
+        Tab::Topics => {
+            "↑↓ navigate  s toggle sub  Enter select  ←→ expand/collapse  Tab pane  q quit  ? help"
+        }
         Tab::Nodes => "↑↓ navigate  Enter select  Tab pane  q quit  ? help",
         Tab::Log => "↑↓ scroll  f filter severity  n filter node  / search  q quit  ? help",
         Tab::Joints => "↑↓ navigate  ←→ adjust  Enter edit  p execute pose  q quit  ? help",

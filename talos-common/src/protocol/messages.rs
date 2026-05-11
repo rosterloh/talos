@@ -24,8 +24,12 @@ pub enum Response {
         data: DynValue,
     },
     PoseList(Vec<PoseInfo>),
-    Subscribed { topics: Vec<TopicSub> },
-    Unsubscribed { topics: Vec<String> },
+    Subscribed {
+        topics: Vec<TopicSub>,
+    },
+    Unsubscribed {
+        topics: Vec<String>,
+    },
     Ok(String),
     Error(String),
 }

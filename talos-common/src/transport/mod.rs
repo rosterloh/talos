@@ -28,9 +28,8 @@ pub trait TransportClient: Transport + Sized {
 pub trait TransportServer: Transport + Sized {
     type Listener: Send;
 
-    fn bind(
-        config: &TransportConfig,
-    ) -> impl Future<Output = Result<Self::Listener, Error>> + Send;
+    fn bind(config: &TransportConfig)
+    -> impl Future<Output = Result<Self::Listener, Error>> + Send;
     fn accept(
         listener: &Self::Listener,
     ) -> impl Future<Output = Result<Connection<Self>, Error>> + Send;

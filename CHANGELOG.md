@@ -9,6 +9,8 @@ those entries into the versioned section when a release is created.
 
 ### Added
 
+- Add per-topic subscribe and unsubscribe controls in the TUI Topics tab, with subscription choices preserved across reconnects.
+- Document how customized topic subscriptions handle newly discovered topics and retry failed manual toggles after reconnect.
 - Add `sensor_msgs/msg/LaserScan` subscription support with full field conversion (`header`, `angle_min/max/increment`, `time_increment`, `scan_time`, `range_min/max`, `ranges`, `intensities`).
 - Add `sensor_msgs/msg/Imu` subscription support with full field conversion (`header`, `orientation` + covariance, `angular_velocity` + covariance, `linear_acceleration` + covariance).
 - Add `geometry_msgs/msg/PoseStamped` subscription support (`header`, `pose`).
@@ -18,6 +20,17 @@ those entries into the versioned section when a release is created.
 
 - Cache mdBook tooling in the Docs workflow to reduce CI time.
 - Update the release workflow so feature development targets `dev` and version bumps run when `dev` is promoted to `main`.
+- Keep TUI topic ordering stable while subscription acknowledgements and refreshed topic lists arrive mid-session.
+- Stop reconnect requests from retrying topics that disappeared from the latest agent topic list, and document that those topics drop out of the pane until re-advertised.
+- Treat a fresh `TopicList` as a reconnect catalog rather than proof of active subscriptions, which avoids false subscribed badges before subscribe acknowledgements land.
+- Let `s` toggle the selected topic from either Topics pane and make pending subscription badges easier to distinguish without relying on color.
+
+### Fixed
+
+- Clear stale TUI topic subscription errors when later topic data confirms a desired subscription is healthy again.
+- Clear stale unsubscribe errors after reconnect when the desired state is already unsubscribed.
+- Ignore stale TUI subscribe or unsubscribe acknowledgements after desired topic intent changes.
+- Roll back optimistic TUI topic toggles if the client command channel has already stopped.
 
 ## [0.1.5] - 2026-04-28
 

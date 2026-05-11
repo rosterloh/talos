@@ -1,5 +1,5 @@
-use tokio::net::{UnixListener, UnixStream};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::{UnixListener, UnixStream};
 
 use super::{Connection, Transport, TransportClient, TransportConfig, TransportServer};
 use crate::error::Error;

@@ -42,9 +42,10 @@ impl QuicProtocolClient {
         let connection = QuicTransport::connect(addr).await?;
 
         // Open the bidirectional control stream (stream 0)
-        let (send, recv) = connection.open_bi().await.map_err(|e| {
-            Error::Config(format!("failed to open QUIC control stream: {e}"))
-        })?;
+        let (send, recv) = connection
+            .open_bi()
+            .await
+            .map_err(|e| Error::Config(format!("failed to open QUIC control stream: {e}")))?;
 
         let control_tx = FramedWrite::new(send, BincodeCodec::new());
         let control_rx = FramedRead::new(recv, BincodeCodec::new());
@@ -113,15 +114,12 @@ impl ProtocolClient for QuicProtocolClient {
     /// Blocks until a `TopicFrame` is delivered by the background accept task.
     /// This method is cancel-safe because it only awaits on an `mpsc::Receiver`.
     async fn recv_data(&mut self) -> Result<(String, TopicFrame), Error> {
-        self.data_rx
-            .recv()
-            .await
-            .ok_or_else(|| {
-                Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "QUIC data channel closed",
-                ))
-            })
+        self.data_rx.recv().await.ok_or_else(|| {
+            Error::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "QUIC data channel closed",
+            ))
+        })
     }
 }
 
@@ -150,10 +148,7 @@ async fn accept_data_streams(
 ///
 /// Uses `LengthDelimitedCodec` so the same codec handles both frame types
 /// without any buffering ambiguity when switching between header and data.
-async fn read_data_stream(
-    stream: RecvStream,
-    tx: mpsc::UnboundedSender<(String, TopicFrame)>,
-) {
+async fn read_data_stream(stream: RecvStream, tx: mpsc::UnboundedSender<(String, TopicFrame)>) {
     let codec = LengthDelimitedCodec::builder()
         .length_field_length(4)
         .big_endian()

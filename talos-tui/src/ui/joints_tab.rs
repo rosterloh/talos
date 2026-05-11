@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph};
-use ratatui::Frame;
 
 use crate::state::{AppState, JointFocus, Pane};
 
@@ -23,7 +23,10 @@ pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
 fn draw_left_pane(f: &mut Frame, state: &AppState, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(5), Constraint::Length(state.poses.len() as u16 + 4)])
+        .constraints([
+            Constraint::Min(5),
+            Constraint::Length(state.poses.len() as u16 + 4),
+        ])
         .split(area);
 
     draw_joint_list(f, state, chunks[0]);
@@ -52,10 +55,7 @@ fn draw_joint_list(f: &mut Frame, state: &AppState, area: Rect) {
 
             ListItem::new(Line::from(vec![
                 Span::styled(marker, style),
-                Span::styled(
-                    format!("{:<18}", joint.info.name),
-                    style,
-                ),
+                Span::styled(format!("{:<18}", joint.info.name), style),
                 Span::styled(pos_str, Style::default().fg(Color::Green)),
             ]))
         })
@@ -197,7 +197,12 @@ fn draw_joint_detail(f: &mut Frame, state: &AppState, area: Rect) {
             lines.push(Line::from(vec![
                 Span::styled("Set position: ", Style::default().fg(Color::Yellow)),
                 Span::styled(&state.joint_input, Style::default().fg(Color::White)),
-                Span::styled("_", Style::default().fg(Color::White).add_modifier(Modifier::SLOW_BLINK)),
+                Span::styled(
+                    "_",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::SLOW_BLINK),
+                ),
             ]));
             if let Some(ref err) = state.joint_input_error {
                 lines.push(Line::from(Span::styled(
@@ -244,7 +249,7 @@ fn draw_joint_detail(f: &mut Frame, state: &AppState, area: Rect) {
         .constraints([
             Constraint::Length(6), // Info lines
             Constraint::Length(3), // Gauge
-            Constraint::Min(0),   // Remaining info
+            Constraint::Min(0),    // Remaining info
         ])
         .split(area);
 
@@ -272,12 +277,7 @@ fn draw_joint_detail(f: &mut Frame, state: &AppState, area: Rect) {
         // Limits labels
         let limits_line = Line::from(vec![
             Span::styled(format!(" {lower:.2}"), Style::default().fg(Color::DarkGray)),
-            Span::raw(" ".repeat(
-                detail_chunks[1]
-                    .width
-                    .saturating_sub(16)
-                    .into(),
-            )),
+            Span::raw(" ".repeat(detail_chunks[1].width.saturating_sub(16).into())),
             Span::styled(format!("{upper:.2} "), Style::default().fg(Color::DarkGray)),
         ]);
         let limits_para = Paragraph::new(limits_line).block(
@@ -285,11 +285,14 @@ fn draw_joint_detail(f: &mut Frame, state: &AppState, area: Rect) {
                 .borders(Borders::LEFT | Borders::RIGHT)
                 .border_style(border_style),
         );
-        f.render_widget(limits_para, Rect {
-            y: detail_chunks[1].y + detail_chunks[1].height,
-            height: 1.min(detail_chunks[2].height),
-            ..detail_chunks[1]
-        });
+        f.render_widget(
+            limits_para,
+            Rect {
+                y: detail_chunks[1].y + detail_chunks[1].height,
+                height: 1.min(detail_chunks[2].height),
+                ..detail_chunks[1]
+            },
+        );
     }
 
     // Remaining content

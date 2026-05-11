@@ -5,24 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentConfig {
     pub transport: TransportSettings,
     pub subscriptions: Vec<SubscriptionConfig>,
     pub control: Option<ControlConfig>,
     pub poses: HashMap<String, HashMap<String, f64>>,
-}
-
-impl Default for AgentConfig {
-    fn default() -> Self {
-        Self {
-            transport: TransportSettings::default(),
-            subscriptions: Vec::new(),
-            control: None,
-            poses: HashMap::new(),
-        }
-    }
 }
 
 /// Top-level transport settings. Both `uds` and `quic` are optional; at least one should be
