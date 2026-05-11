@@ -836,6 +836,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn ignored_subscribed_ack_keeps_selected_topic_stable() {
         let mut state = AppState::default();
         state.handle_response(Response::TopicList(vec![

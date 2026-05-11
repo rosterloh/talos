@@ -119,7 +119,7 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
         if let Some(error) = &topic.subscription_error {
             lines.push(Line::from(vec![
                 Span::styled("Last error: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(error.as_str(), Style::default().fg(Color::Red)),
+                Span::styled(error.clone(), Style::default().fg(Color::Red)),
             ]));
         }
         lines.push(Line::from(""));
