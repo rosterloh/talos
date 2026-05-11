@@ -5,24 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentConfig {
     pub transport: TransportSettings,
     pub subscriptions: Vec<SubscriptionConfig>,
     pub control: Option<ControlConfig>,
     pub poses: HashMap<String, HashMap<String, f64>>,
-}
-
-impl Default for AgentConfig {
-    fn default() -> Self {
-        Self {
-            transport: TransportSettings::default(),
-            subscriptions: Vec::new(),
-            control: None,
-            poses: HashMap::new(),
-        }
-    }
 }
 
 /// Top-level transport settings. Both `uds` and `quic` are optional; at least one should be
@@ -78,11 +67,30 @@ impl Default for QuicTransportConfig {
     }
 }
 
+/// QoS profile for a subscription.
+///
+/// `Default` uses the rclrs default QoS profile (Reliable reliability, Volatile durability,
+/// KeepLast history). The exact depth is inherited from the rclrs/rmw default and is not
+/// enforced explicitly here. Suitable for infrequent or control topics.
+///
+/// `SensorData` maps to `QOS_PROFILE_SENSOR_DATA`: BestEffort reliability, Volatile durability,
+/// KeepLast history with depth 5. Suitable for high-rate sensor topics (laser, IMU, etc.)
+/// where occasional message loss is acceptable and low latency matters.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QosProfile {
+    #[default]
+    Default,
+    SensorData,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubscriptionConfig {
     pub topic: String,
     #[serde(rename = "type")]
     pub msg_type: String,
+    #[serde(default)]
+    pub qos: QosProfile,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,5 +134,41 @@ impl AgentConfig {
     /// Returns the UDS socket path if UDS transport is configured.
     pub fn uds_socket_path(&self) -> Option<&str> {
         self.transport.uds.as_ref().map(|u| u.socket_path.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subscription_without_qos_defaults_to_default_profile() {
+        let toml = r#"
+            topic = "/scan"
+            type  = "sensor_msgs/msg/LaserScan"
+        "#;
+        let sub: SubscriptionConfig = toml::from_str(toml).unwrap();
+        assert!(matches!(sub.qos, QosProfile::Default));
+    }
+
+    #[test]
+    fn subscription_with_sensor_data_qos_parses_correctly() {
+        let toml = r#"
+            topic = "/scan"
+            type  = "sensor_msgs/msg/LaserScan"
+            qos   = "sensor_data"
+        "#;
+        let sub: SubscriptionConfig = toml::from_str(toml).unwrap();
+        assert!(matches!(sub.qos, QosProfile::SensorData));
+    }
+
+    #[test]
+    fn subscription_with_unknown_qos_returns_error() {
+        let toml = r#"
+            topic = "/scan"
+            type  = "sensor_msgs/msg/LaserScan"
+            qos   = "best_effort"
+        "#;
+        assert!(toml::from_str::<SubscriptionConfig>(toml).is_err());
     }
 }

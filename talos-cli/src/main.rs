@@ -3,14 +3,19 @@ use std::process;
 use clap::{Parser, Subcommand};
 use talos_common::protocol::messages::{Request, Response};
 use talos_common::protocol::types::DynValue;
-use talos_common::session::uds::UdsProtocolClient;
 use talos_common::session::ProtocolClient;
+use talos_common::session::uds::UdsProtocolClient;
 
 #[derive(Parser)]
 #[command(name = "talos", about = "CLI for the Talos ROS 2 bridge")]
 struct Cli {
     /// Path to the agent Unix socket (mutually exclusive with --remote)
-    #[arg(long, default_value = "/tmp/talos.sock", global = true, conflicts_with = "remote")]
+    #[arg(
+        long,
+        default_value = "/tmp/talos.sock",
+        global = true,
+        conflicts_with = "remote"
+    )]
     socket: String,
 
     /// Remote agent address for QUIC transport, e.g. 192.168.1.50:4433

@@ -53,8 +53,12 @@ impl QuicTransport {
             ))
         })?;
 
-        Endpoint::server(server_config, addr)
-            .map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::AddrInUse, e.to_string())))
+        Endpoint::server(server_config, addr).map_err(|e| {
+            Error::Io(std::io::Error::new(
+                std::io::ErrorKind::AddrInUse,
+                e.to_string(),
+            ))
+        })
     }
 
     /// Create a QUIC client endpoint and connect to `addr`.

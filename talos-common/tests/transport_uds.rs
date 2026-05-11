@@ -15,9 +15,7 @@ static TEST_ID: AtomicU32 = AtomicU32::new(0);
 fn test_config() -> TransportConfig {
     let id = TEST_ID.fetch_add(1, Ordering::SeqCst);
     let path = format!("/tmp/talos-test-{}-{id}.sock", std::process::id());
-    TransportConfig {
-        socket_path: path,
-    }
+    TransportConfig { socket_path: path }
 }
 
 #[tokio::test]

@@ -53,6 +53,7 @@ fn draw_tab_bar(f: &mut Frame, state: &AppState, area: Rect) {
     let connection = if state.connected {
         let label = match state.transport_type {
             Some(TransportType::Uds) => " ● connected (uds) ",
+            #[cfg(feature = "quic")]
             Some(TransportType::Quic) => " ● connected (quic) ",
             None => " ● connected ",
         };

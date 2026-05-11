@@ -6,7 +6,7 @@ use talos_agent::router::TopicRouter;
 use talos_agent::server::RouterHandle;
 use talos_agent::{GraphHandle, JointPublisher};
 use talos_common::config::AgentConfig;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tracing::{error, info};
 
 #[derive(Parser)]

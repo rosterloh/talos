@@ -154,10 +154,13 @@ pub struct JointData {
     pub effort: Option<f64>,
 }
 
+type JointSnapshot = (Option<f64>, Option<f64>, Option<f64>);
+
 /// Which transport the TUI is currently using.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportType {
     Uds,
+    #[cfg(feature = "quic")]
     Quic,
 }
 
@@ -190,7 +193,6 @@ pub struct AppState {
     pub log_severity_filter: LogLevel,
     pub log_node_filter: String,
     pub log_search: String,
-    pub log_editing_filter: bool,
 
     // Joints tab
     pub joints: Vec<JointData>,
@@ -232,7 +234,6 @@ impl Default for AppState {
             log_severity_filter: LogLevel::All,
             log_node_filter: String::new(),
             log_search: String::new(),
-            log_editing_filter: false,
             joints: Vec::new(),
             joint_selected: 0,
             poses: Vec::new(),
@@ -263,17 +264,13 @@ impl AppState {
 
                     let should_be_subscribed =
                         auto_subscribe_all || self.desired_subscriptions.contains(&name);
-                    // A topic catalog snapshot is not proof that this connection is
-                    // already subscribed. The subscribe request and its ack carry that.
-                    let mut topic = current_topics.remove(&name).unwrap_or_else(|| TopicData {
-                        info: info.clone(),
-                        latest: None,
-                        last_received: None,
-                        msg_count: 0,
-                        hz: 0.0,
-                        subscription: TopicSubscriptionState::Unsubscribed,
-                        subscription_error: None,
-                    });
+                    // `ListTopics` currently arrives once per connection, so a fresh
+                    // catalog snapshot resets the per-connection subscription baseline.
+                    // Keep pending manual toggles visible, but otherwise wait for the
+                    // subscribe ack or live data before showing a topic as on again.
+                    let mut topic = current_topics
+                        .remove(&name)
+                        .unwrap_or_else(|| TopicData::placeholder(&name));
 
                     topic.info = info;
                     if matches!(
@@ -316,6 +313,13 @@ impl AppState {
                     self.desired_subscriptions.insert(topic.clone());
                 }
                 let should_be_subscribed = self.desired_subscriptions.contains(&topic);
+                let keep_pending_unsubscribe_data = self.topics.get(&topic).is_some_and(|entry| {
+                    entry.subscription == TopicSubscriptionState::PendingUnsubscribe
+                });
+                if !should_be_subscribed && !keep_pending_unsubscribe_data {
+                    return;
+                }
+
                 let now = Instant::now();
                 let entry = self
                     .topics
@@ -365,12 +369,12 @@ impl AppState {
                 self.ensure_topic_name(&topic);
 
                 // Extract log entries from /rosout
-                if topic == "/rosout" {
-                    if let Some(entry) = extract_log_entry(&data) {
-                        self.log_entries.push_front(entry);
-                        while self.log_entries.len() > self.log_max_entries {
-                            self.log_entries.pop_back();
-                        }
+                if topic == "/rosout"
+                    && let Some(entry) = extract_log_entry(&data)
+                {
+                    self.log_entries.push_front(entry);
+                    while self.log_entries.len() > self.log_max_entries {
+                        self.log_entries.pop_back();
                     }
                 }
 
@@ -380,10 +384,10 @@ impl AppState {
                 }
 
                 // Parse URDF from /robot_description
-                if topic == "/robot_description" {
-                    if let DynValue::String(urdf_xml) = &data {
-                        self.update_joints_from_urdf(urdf_xml);
-                    }
+                if topic == "/robot_description"
+                    && let DynValue::String(urdf_xml) = &data
+                {
+                    self.update_joints_from_urdf(urdf_xml);
                 }
             }
             Response::PoseList(poses) => {
@@ -583,15 +587,14 @@ impl AppState {
             return;
         }
 
-        if let Some(selected_topic) = selected_topic {
-            if let Some(index) = self
+        if let Some(selected_topic) = selected_topic
+            && let Some(index) = self
                 .topic_names
                 .iter()
                 .position(|topic_name| topic_name == selected_topic)
-            {
-                self.topic_selected = index;
-                return;
-            }
+        {
+            self.topic_selected = index;
+            return;
         }
 
         self.topic_selected = self.topic_selected.min(self.topic_names.len() - 1);
@@ -638,7 +641,7 @@ impl AppState {
     fn update_joints_from_urdf(&mut self, urdf_xml: &str) {
         if let Ok(joint_infos) = talos_common::urdf::extract_joints(urdf_xml) {
             // Preserve existing position data
-            let existing: HashMap<String, (Option<f64>, Option<f64>, Option<f64>)> = self
+            let existing: HashMap<String, JointSnapshot> = self
                 .joints
                 .iter()
                 .map(|j| (j.info.name.clone(), (j.position, j.velocity, j.effort)))
@@ -1014,5 +1017,81 @@ mod tests {
             TopicSubscriptionState::Subscribed
         );
         assert_eq!(state.topics["/camera"].subscription_error, None);
+    }
+
+    #[test]
+    fn topic_data_while_unsubscribe_is_pending_still_updates_latest_sample() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![topic(
+            "/camera",
+            "sensor_msgs/msg/Image",
+        )]));
+
+        assert_eq!(
+            state.toggle_selected_topic_subscription(),
+            Some(Request::Unsubscribe {
+                topics: vec!["/camera".to_string()]
+            })
+        );
+
+        state.handle_response(Response::TopicData {
+            topic: "/camera".into(),
+            type_name: "sensor_msgs/msg/Image".into(),
+            stamp: Timestamp { sec: 0, nanosec: 0 },
+            data: DynValue::String("during-pending".into()),
+        });
+
+        let topic = &state.topics["/camera"];
+        assert_eq!(
+            topic.subscription,
+            TopicSubscriptionState::PendingUnsubscribe
+        );
+        assert_eq!(
+            topic.latest,
+            Some(DynValue::String("during-pending".into()))
+        );
+        assert_eq!(topic.msg_count, 1);
+    }
+
+    #[test]
+    fn topic_data_is_ignored_once_topic_is_unsubscribed() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![topic(
+            "/camera",
+            "sensor_msgs/msg/Image",
+        )]));
+
+        {
+            let topic = state.topics.get_mut("/camera").unwrap();
+            topic.latest = Some(DynValue::String("before".into()));
+            topic.last_received = Some(Instant::now());
+            topic.msg_count = 41;
+            topic.hz = 12.5;
+        }
+
+        assert_eq!(
+            state.toggle_selected_topic_subscription(),
+            Some(Request::Unsubscribe {
+                topics: vec!["/camera".to_string()]
+            })
+        );
+        state.handle_response(Response::Unsubscribed {
+            topics: vec!["/camera".to_string()],
+        });
+
+        let before_last_received = state.topics["/camera"].last_received;
+        state.handle_response(Response::TopicData {
+            topic: "/camera".into(),
+            type_name: "sensor_msgs/msg/Image".into(),
+            stamp: Timestamp { sec: 1, nanosec: 0 },
+            data: DynValue::String("after".into()),
+        });
+
+        let topic = &state.topics["/camera"];
+        assert_eq!(topic.subscription, TopicSubscriptionState::Unsubscribed);
+        assert_eq!(topic.latest, Some(DynValue::String("before".into())));
+        assert_eq!(topic.last_received, before_last_received);
+        assert_eq!(topic.msg_count, 41);
+        assert_eq!(topic.hz, 12.5);
     }
 }

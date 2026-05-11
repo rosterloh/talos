@@ -115,130 +115,129 @@ fn run_app(
             terminal.draw(|f| ui::draw(f, &s))?;
         }
 
-        if event::poll(tick_rate)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind != KeyEventKind::Press {
-                    continue;
-                }
+        if event::poll(tick_rate)?
+            && let Event::Key(key) = event::read()?
+        {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
 
-                let mut s = state.lock().unwrap();
+            let mut s = state.lock().unwrap();
 
-                if s.show_help {
-                    s.show_help = false;
-                    continue;
-                }
+            if s.show_help {
+                s.show_help = false;
+                continue;
+            }
 
-                // Joint position editing mode
-                if s.editing_joint {
-                    match key.code {
-                        KeyCode::Esc => {
-                            s.editing_joint = false;
-                            s.joint_input.clear();
-                            s.joint_input_error = None;
-                        }
-                        KeyCode::Enter => {
-                            handle_joint_input_submit(&mut s, cmd_tx);
-                        }
-                        KeyCode::Backspace => {
-                            s.joint_input.pop();
-                            s.joint_input_error = None;
-                        }
-                        KeyCode::Char(c) if c.is_ascii_digit() || c == '.' || c == '-' => {
-                            s.joint_input.push(c);
-                            s.joint_input_error = None;
-                        }
-                        _ => {}
-                    }
-                    continue;
-                }
-
-                // Pose confirmation mode
-                if s.pose_confirming {
-                    match key.code {
-                        KeyCode::Char('y') | KeyCode::Enter => {
-                            handle_pose_confirm(&mut s, cmd_tx);
-                        }
-                        _ => {
-                            s.pose_confirming = false;
-                        }
-                    }
-                    continue;
-                }
-
+            // Joint position editing mode
+            if s.editing_joint {
                 match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Char('?') => s.show_help = true,
-
-                    // Tab switching
-                    KeyCode::Char('1') => s.active_tab = Tab::Topics,
-                    KeyCode::Char('2') => s.active_tab = Tab::Nodes,
-                    KeyCode::Char('3') => s.active_tab = Tab::Log,
-                    KeyCode::Char('4') => s.active_tab = Tab::Joints,
-                    KeyCode::Tab => {
-                        s.active_pane = match s.active_pane {
-                            Pane::Left => Pane::Right,
-                            Pane::Right => Pane::Left,
-                        };
+                    KeyCode::Esc => {
+                        s.editing_joint = false;
+                        s.joint_input.clear();
+                        s.joint_input_error = None;
                     }
-
-                    // Navigation
-                    KeyCode::Up => handle_up(&mut s),
-                    KeyCode::Down => handle_down(&mut s),
-                    KeyCode::Left => handle_left(&mut s),
-                    KeyCode::Right => handle_right(&mut s),
-                    KeyCode::Enter => handle_enter(&mut s),
-
-                    // Log tab specific
-                    KeyCode::Char('f') if s.active_tab == Tab::Log => {
-                        let levels = LogLevel::ALL_LEVELS;
-                        let idx = levels
-                            .iter()
-                            .position(|l| *l == s.log_severity_filter)
-                            .unwrap_or(0);
-                        s.log_severity_filter = levels[(idx + 1) % levels.len()];
+                    KeyCode::Enter => {
+                        handle_joint_input_submit(&mut s, cmd_tx);
                     }
-
-                    KeyCode::Char('s') if s.active_tab == Tab::Topics => {
-                        handle_topic_subscription_toggle(&mut s, cmd_tx);
+                    KeyCode::Backspace => {
+                        s.joint_input.pop();
+                        s.joint_input_error = None;
                     }
-
-                    // Joints tab specific
-                    KeyCode::Char('j') if s.active_tab == Tab::Joints => {
-                        s.joint_focus = JointFocus::JointList;
+                    KeyCode::Char(c) if c.is_ascii_digit() || c == '.' || c == '-' => {
+                        s.joint_input.push(c);
+                        s.joint_input_error = None;
                     }
-                    KeyCode::Char('o') if s.active_tab == Tab::Joints => {
-                        s.joint_focus = JointFocus::PoseList;
-                    }
-                    KeyCode::Char('e')
-                        if s.active_tab == Tab::Joints
-                            && s.joint_focus == JointFocus::JointList =>
-                    {
-                        if !s.joints.is_empty() {
-                            s.editing_joint = true;
-                            s.joint_input.clear();
-                            s.joint_input_error = None;
-                        }
-                    }
-                    KeyCode::Char('x')
-                        if s.active_tab == Tab::Joints && s.joint_focus == JointFocus::PoseList =>
-                    {
-                        if !s.poses.is_empty() {
-                            s.pose_confirming = true;
-                        }
-                    }
-
                     _ => {}
                 }
+                continue;
+            }
+
+            // Pose confirmation mode
+            if s.pose_confirming {
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Enter => {
+                        handle_pose_confirm(&mut s, cmd_tx);
+                    }
+                    _ => {
+                        s.pose_confirming = false;
+                    }
+                }
+                continue;
+            }
+
+            match key.code {
+                KeyCode::Char('q') => return Ok(()),
+                KeyCode::Char('?') => s.show_help = true,
+
+                // Tab switching
+                KeyCode::Char('1') => s.active_tab = Tab::Topics,
+                KeyCode::Char('2') => s.active_tab = Tab::Nodes,
+                KeyCode::Char('3') => s.active_tab = Tab::Log,
+                KeyCode::Char('4') => s.active_tab = Tab::Joints,
+                KeyCode::Tab => {
+                    s.active_pane = match s.active_pane {
+                        Pane::Left => Pane::Right,
+                        Pane::Right => Pane::Left,
+                    };
+                }
+
+                // Navigation
+                KeyCode::Up => handle_up(&mut s),
+                KeyCode::Down => handle_down(&mut s),
+                KeyCode::Left => handle_left(&mut s),
+                KeyCode::Right => handle_right(&mut s),
+                KeyCode::Enter => handle_enter(&mut s),
+
+                // Log tab specific
+                KeyCode::Char('f') if s.active_tab == Tab::Log => {
+                    let levels = LogLevel::ALL_LEVELS;
+                    let idx = levels
+                        .iter()
+                        .position(|l| *l == s.log_severity_filter)
+                        .unwrap_or(0);
+                    s.log_severity_filter = levels[(idx + 1) % levels.len()];
+                }
+
+                KeyCode::Char('s') if s.active_tab == Tab::Topics => {
+                    handle_topic_subscription_toggle(&mut s, cmd_tx);
+                }
+
+                // Joints tab specific
+                KeyCode::Char('j') if s.active_tab == Tab::Joints => {
+                    s.joint_focus = JointFocus::JointList;
+                }
+                KeyCode::Char('o') if s.active_tab == Tab::Joints => {
+                    s.joint_focus = JointFocus::PoseList;
+                }
+                KeyCode::Char('e')
+                    if s.active_tab == Tab::Joints && s.joint_focus == JointFocus::JointList =>
+                {
+                    if !s.joints.is_empty() {
+                        s.editing_joint = true;
+                        s.joint_input.clear();
+                        s.joint_input_error = None;
+                    }
+                }
+                KeyCode::Char('x')
+                    if s.active_tab == Tab::Joints && s.joint_focus == JointFocus::PoseList =>
+                {
+                    if !s.poses.is_empty() {
+                        s.pose_confirming = true;
+                    }
+                }
+
+                _ => {}
             }
         }
     }
 }
 
 fn handle_topic_subscription_toggle(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
-    if let Some(toggle) = state.prepare_selected_topic_subscription_toggle() {
-        if cmd_tx.send(toggle.request.clone()).is_err() {
-            state.revert_topic_subscription_toggle(toggle);
-        }
+    if let Some(toggle) = state.prepare_selected_topic_subscription_toggle()
+        && cmd_tx.send(toggle.request.clone()).is_err()
+    {
+        state.revert_topic_subscription_toggle(toggle);
     }
 }
 
@@ -376,12 +375,11 @@ fn handle_left(state: &mut AppState) {
 fn handle_right(state: &mut AppState) {
     if state.active_tab == Tab::Topics && state.active_pane == Pane::Right {
         // Expand all at current topic level
-        if let Some(topic_name) = state.topic_names.get(state.topic_selected) {
-            if let Some(topic_data) = state.topics.get(topic_name) {
-                if let Some(ref data) = topic_data.latest {
-                    expand_first_level(data, topic_name, &mut state.tree_expanded);
-                }
-            }
+        if let Some(topic_name) = state.topic_names.get(state.topic_selected)
+            && let Some(topic_data) = state.topics.get(topic_name)
+            && let Some(ref data) = topic_data.latest
+        {
+            expand_first_level(data, topic_name, &mut state.tree_expanded);
         }
     }
 }
@@ -404,12 +402,11 @@ fn expand_first_level(
 fn handle_enter(state: &mut AppState) {
     if state.active_tab == Tab::Topics && state.active_pane == Pane::Right {
         // Toggle expand on the selected topic's first-level struct fields
-        if let Some(topic_name) = state.topic_names.get(state.topic_selected).cloned() {
-            if let Some(topic_data) = state.topics.get(&topic_name) {
-                if let Some(ref data) = topic_data.latest {
-                    toggle_first_level(data, &topic_name, &mut state.tree_expanded);
-                }
-            }
+        if let Some(topic_name) = state.topic_names.get(state.topic_selected).cloned()
+            && let Some(topic_data) = state.topics.get(&topic_name)
+            && let Some(ref data) = topic_data.latest
+        {
+            toggle_first_level(data, &topic_name, &mut state.tree_expanded);
         }
     }
 }
