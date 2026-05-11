@@ -7,6 +7,13 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Added
+
+- Add `sensor_msgs/msg/LaserScan` subscription support with full field conversion (`header`, `angle_min/max/increment`, `time_increment`, `scan_time`, `range_min/max`, `ranges`, `intensities`).
+- Add `sensor_msgs/msg/Imu` subscription support with full field conversion (`header`, `orientation` + covariance, `angular_velocity` + covariance, `linear_acceleration` + covariance).
+- Add `geometry_msgs/msg/PoseStamped` subscription support (`header`, `pose`).
+- Add per-subscription `qos` config field accepting `"default"` (Reliable, Volatile, KeepLast — rclrs default depth) or `"sensor_data"` (BestEffort, Volatile, KeepLast 5). Omitting `qos` preserves existing behavior.
+
 ### Changed
 
 - Cache mdBook tooling in the Docs workflow to reduce CI time.

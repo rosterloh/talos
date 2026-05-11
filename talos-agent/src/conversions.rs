@@ -100,7 +100,11 @@ pub fn odometry_to_dynvalue(msg: &nav_msgs::msg::Odometry) -> DynValue {
                         (
                             "covariance".into(),
                             DynValue::Array(
-                                msg.pose.covariance.iter().map(|&v| DynValue::F64(v)).collect(),
+                                msg.pose
+                                    .covariance
+                                    .iter()
+                                    .map(|&v| DynValue::F64(v))
+                                    .collect(),
                             ),
                         ),
                     ],
@@ -164,6 +168,185 @@ pub fn joint_state_to_dynvalue(msg: &sensor_msgs::msg::JointState) -> DynValue {
                 DynValue::Array(msg.effort.iter().map(|&v| DynValue::F64(v)).collect()),
             ),
         ],
+    }
+}
+
+pub fn laser_scan_to_dynvalue(msg: &sensor_msgs::msg::LaserScan) -> DynValue {
+    DynValue::Struct {
+        type_name: "LaserScan".into(),
+        fields: vec![
+            ("header".into(), header_to_dynvalue(&msg.header)),
+            ("angle_min".into(), DynValue::F64(msg.angle_min as f64)),
+            ("angle_max".into(), DynValue::F64(msg.angle_max as f64)),
+            (
+                "angle_increment".into(),
+                DynValue::F64(msg.angle_increment as f64),
+            ),
+            (
+                "time_increment".into(),
+                DynValue::F64(msg.time_increment as f64),
+            ),
+            ("scan_time".into(), DynValue::F64(msg.scan_time as f64)),
+            ("range_min".into(), DynValue::F64(msg.range_min as f64)),
+            ("range_max".into(), DynValue::F64(msg.range_max as f64)),
+            (
+                "ranges".into(),
+                DynValue::Array(
+                    msg.ranges
+                        .iter()
+                        .map(|&v| DynValue::F64(v as f64))
+                        .collect(),
+                ),
+            ),
+            (
+                "intensities".into(),
+                DynValue::Array(
+                    msg.intensities
+                        .iter()
+                        .map(|&v| DynValue::F64(v as f64))
+                        .collect(),
+                ),
+            ),
+        ],
+    }
+}
+
+pub fn imu_to_dynvalue(msg: &sensor_msgs::msg::Imu) -> DynValue {
+    DynValue::Struct {
+        type_name: "Imu".into(),
+        fields: vec![
+            ("header".into(), header_to_dynvalue(&msg.header)),
+            (
+                "orientation".into(),
+                quaternion_to_dynvalue(&msg.orientation),
+            ),
+            (
+                "orientation_covariance".into(),
+                DynValue::Array(
+                    msg.orientation_covariance
+                        .iter()
+                        .map(|&v| DynValue::F64(v))
+                        .collect(),
+                ),
+            ),
+            (
+                "angular_velocity".into(),
+                vector3_to_dynvalue(&msg.angular_velocity),
+            ),
+            (
+                "angular_velocity_covariance".into(),
+                DynValue::Array(
+                    msg.angular_velocity_covariance
+                        .iter()
+                        .map(|&v| DynValue::F64(v))
+                        .collect(),
+                ),
+            ),
+            (
+                "linear_acceleration".into(),
+                vector3_to_dynvalue(&msg.linear_acceleration),
+            ),
+            (
+                "linear_acceleration_covariance".into(),
+                DynValue::Array(
+                    msg.linear_acceleration_covariance
+                        .iter()
+                        .map(|&v| DynValue::F64(v))
+                        .collect(),
+                ),
+            ),
+        ],
+    }
+}
+
+pub fn pose_stamped_to_dynvalue(msg: &geometry_msgs::msg::PoseStamped) -> DynValue {
+    DynValue::Struct {
+        type_name: "PoseStamped".into(),
+        fields: vec![
+            ("header".into(), header_to_dynvalue(&msg.header)),
+            ("pose".into(), pose_to_dynvalue(&msg.pose)),
+        ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field_names(dv: &DynValue) -> Vec<&str> {
+        match dv {
+            DynValue::Struct { fields, .. } => fields.iter().map(|(k, _)| k.as_str()).collect(),
+            _ => panic!("expected DynValue::Struct"),
+        }
+    }
+
+    fn array_len(dv: &DynValue, field: &str) -> usize {
+        match dv {
+            DynValue::Struct { fields, .. } => {
+                let val = fields.iter().find(|(k, _)| k == field).map(|(_, v)| v);
+                match val.expect("field not found") {
+                    DynValue::Array(a) => a.len(),
+                    _ => panic!("field {field} is not an Array"),
+                }
+            }
+            _ => panic!("expected DynValue::Struct"),
+        }
+    }
+
+    #[test]
+    fn laser_scan_field_names_and_range_length() {
+        let mut msg = sensor_msgs::msg::LaserScan::default();
+        msg.ranges = vec![1.0, 2.0, 3.0];
+        msg.intensities = vec![0.1, 0.2, 0.3];
+        let dv = laser_scan_to_dynvalue(&msg);
+        let names = field_names(&dv);
+        assert_eq!(
+            names,
+            &[
+                "header",
+                "angle_min",
+                "angle_max",
+                "angle_increment",
+                "time_increment",
+                "scan_time",
+                "range_min",
+                "range_max",
+                "ranges",
+                "intensities"
+            ]
+        );
+        assert_eq!(array_len(&dv, "ranges"), 3);
+        assert_eq!(array_len(&dv, "intensities"), 3);
+    }
+
+    #[test]
+    fn imu_field_names_and_covariance_lengths() {
+        let msg = sensor_msgs::msg::Imu::default();
+        let dv = imu_to_dynvalue(&msg);
+        let names = field_names(&dv);
+        assert_eq!(
+            names,
+            &[
+                "header",
+                "orientation",
+                "orientation_covariance",
+                "angular_velocity",
+                "angular_velocity_covariance",
+                "linear_acceleration",
+                "linear_acceleration_covariance"
+            ]
+        );
+        assert_eq!(array_len(&dv, "orientation_covariance"), 9);
+        assert_eq!(array_len(&dv, "angular_velocity_covariance"), 9);
+        assert_eq!(array_len(&dv, "linear_acceleration_covariance"), 9);
+    }
+
+    #[test]
+    fn pose_stamped_field_names() {
+        let msg = geometry_msgs::msg::PoseStamped::default();
+        let dv = pose_stamped_to_dynvalue(&msg);
+        let names = field_names(&dv);
+        assert_eq!(names, &["header", "pose"]);
     }
 }
 
