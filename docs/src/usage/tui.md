@@ -30,7 +30,8 @@ The TUI reconnects when the agent connection is lost. After connecting, it asks
 for the topic list and subscribes to all discovered topics by default so it can
 receive live data. If you manually toggle topic subscriptions, those choices are
 kept in the client state and re-applied after reconnect instead of subscribing
-to every topic again.
+to every topic again. Topics that disappear from the latest agent topic list are
+removed from the reconnect request until the agent advertises them again.
 
 ## Topics
 
@@ -38,6 +39,15 @@ The Topics tab shows topic names and current message rates. Selecting a topic
 shows the latest `DynValue` tree for that topic. Press `s` with the topic list
 focused to subscribe or unsubscribe the selected topic. The list shows the
 current subscription state, including pending changes and request errors.
+
+Before you customize anything, newly discovered topics inherit the default
+behavior and are subscribed automatically. After you manually subscribe or
+unsubscribe any topic, the TUI switches to using your explicit desired set:
+newly discovered topics stay unsubscribed until you opt into them with `s`.
+
+If a manual subscribe or unsubscribe request fails, the TUI keeps your desired
+choice in client state, shows the error on that topic, and retries the desired
+state after reconnect.
 
 ## Nodes
 

@@ -10,11 +10,18 @@ those entries into the versioned section when a release is created.
 ### Added
 
 - Add per-topic subscribe and unsubscribe controls in the TUI Topics tab, with subscription choices preserved across reconnects.
+- Document how customized topic subscriptions handle newly discovered topics and retry failed manual toggles after reconnect.
 
 ### Changed
 
 - Cache mdBook tooling in the Docs workflow to reduce CI time.
 - Update the release workflow so feature development targets `dev` and version bumps run when `dev` is promoted to `main`.
+- Keep TUI topic ordering stable while subscription acknowledgements and refreshed topic lists arrive mid-session.
+- Stop reconnect requests from retrying topics that disappeared from the latest agent topic list.
+
+### Fixed
+
+- Clear stale TUI topic subscription errors when later topic data confirms a desired subscription is healthy again.
 
 ## [0.1.5] - 2026-04-28
 

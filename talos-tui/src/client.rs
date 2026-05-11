@@ -147,6 +147,7 @@ async fn connect_and_run<C: ProtocolClient>(
                 let error = e.to_string();
                 {
                     let mut s = state.lock().unwrap();
+                    // Keep desired subscription intent intact so reconnect can retry it.
                     s.mark_subscription_error(&desired_topics, &error);
                 }
                 warn!("initial subscribe failed: {error}");
@@ -194,6 +195,8 @@ async fn connect_and_run<C: ProtocolClient>(
                                         let error = e.to_string();
                                         {
                                             let mut s = state.lock().unwrap();
+                                            // AppState already recorded the user's desired intent.
+                                            // Preserve it so the next reconnect retries this topic.
                                             s.mark_subscription_error(&topics, &error);
                                         }
                                         return Err(error);
@@ -216,6 +219,8 @@ async fn connect_and_run<C: ProtocolClient>(
                                         let error = e.to_string();
                                         {
                                             let mut s = state.lock().unwrap();
+                                            // AppState already recorded the user's desired intent.
+                                            // Preserve it so the next reconnect retries this topic.
                                             s.mark_subscription_error(&topics, &error);
                                         }
                                         return Err(error);
@@ -264,6 +269,8 @@ mod tests {
         unsubscribe_calls: Arc<Mutex<Vec<Vec<String>>>>,
         request_calls: Arc<Mutex<Vec<Request>>>,
         request_responses: Arc<Mutex<VecDeque<Response>>>,
+        fail_subscribe_call: Option<usize>,
+        fail_unsubscribe_call: Option<usize>,
     }
 
     impl FakeClient {
@@ -278,7 +285,19 @@ mod tests {
                 unsubscribe_calls: Arc::new(Mutex::new(Vec::new())),
                 request_calls: Arc::new(Mutex::new(Vec::new())),
                 request_responses: Arc::new(Mutex::new(request_responses)),
+                fail_subscribe_call: None,
+                fail_unsubscribe_call: None,
             }
+        }
+
+        fn with_failed_subscribe_call(mut self, call: usize) -> Self {
+            self.fail_subscribe_call = Some(call);
+            self
+        }
+
+        fn with_failed_unsubscribe_call(mut self, call: usize) -> Self {
+            self.fail_unsubscribe_call = Some(call);
+            self
         }
 
         fn subscribe_calls(&self) -> Vec<Vec<String>> {
@@ -325,7 +344,14 @@ mod tests {
         }
 
         async fn subscribe(&mut self, topics: &[String]) -> Result<Vec<TopicSub>, Error> {
-            self.subscribe_calls.lock().unwrap().push(topics.to_vec());
+            let call = {
+                let mut calls = self.subscribe_calls.lock().unwrap();
+                calls.push(topics.to_vec());
+                calls.len()
+            };
+            if self.fail_subscribe_call == Some(call) {
+                return Err(Error::Config("subscribe failed".into()));
+            }
             Ok(topics
                 .iter()
                 .cloned()
@@ -342,7 +368,14 @@ mod tests {
         }
 
         async fn unsubscribe(&mut self, topics: &[String]) -> Result<Vec<String>, Error> {
-            self.unsubscribe_calls.lock().unwrap().push(topics.to_vec());
+            let call = {
+                let mut calls = self.unsubscribe_calls.lock().unwrap();
+                calls.push(topics.to_vec());
+                calls.len()
+            };
+            if self.fail_unsubscribe_call == Some(call) {
+                return Err(Error::Config("unsubscribe failed".into()));
+            }
             Ok(topics.to_vec())
         }
 
@@ -368,6 +401,16 @@ mod tests {
                 subscriber_count: 0,
             },
         ]
+    }
+
+    async fn wait_for(mut predicate: impl FnMut() -> bool) {
+        for _ in 0..100 {
+            if predicate() {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("timed out waiting for test condition");
     }
 
     #[tokio::test]
@@ -434,6 +477,174 @@ mod tests {
                 .request_calls()
                 .iter()
                 .any(|request| matches!(request, Request::Unsubscribe { .. }))
+        );
+    }
+
+    #[tokio::test]
+    async fn reconnect_skips_topics_missing_from_latest_topic_list() {
+        let state = Arc::new(Mutex::new(AppState::default()));
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        drop(cmd_tx);
+
+        let first_client = FakeClient::new(sample_topics());
+        connect_and_run(first_client.clone(), &state, &mut cmd_rx)
+            .await
+            .unwrap();
+
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        drop(cmd_tx);
+        let second_client = FakeClient::new(vec![sample_topics()[0].clone()]);
+        connect_and_run(second_client.clone(), &state, &mut cmd_rx)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            second_client.subscribe_calls(),
+            vec![vec!["/camera".to_string()]]
+        );
+    }
+
+    #[tokio::test]
+    async fn unsubscribe_failure_keeps_intent_for_reconnect_retry() {
+        let state = Arc::new(Mutex::new(AppState::default()));
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let client = FakeClient::new(sample_topics()).with_failed_unsubscribe_call(1);
+
+        let state_for_task = Arc::clone(&state);
+        let client_for_task = client.clone();
+        let handle = tokio::spawn(async move {
+            let mut cmd_rx = cmd_rx;
+            connect_and_run(client_for_task, &state_for_task, &mut cmd_rx).await
+        });
+
+        wait_for(|| client.subscribe_calls().len() == 1).await;
+
+        {
+            let mut app = state.lock().unwrap();
+            app.topic_selected = 1;
+            let request = app.toggle_selected_topic_subscription().unwrap();
+            assert_eq!(
+                request,
+                Request::Unsubscribe {
+                    topics: vec!["/rosout".to_string()]
+                }
+            );
+            cmd_tx.send(request).unwrap();
+        }
+
+        let err = handle.await.unwrap().unwrap_err();
+        assert!(err.contains("unsubscribe failed"));
+
+        {
+            let app = state.lock().unwrap();
+            assert!(!app.desired_subscriptions.contains("/rosout"));
+            assert_eq!(
+                app.topics["/rosout"].subscription,
+                crate::state::TopicSubscriptionState::Error
+            );
+            assert!(
+                app.topics["/rosout"]
+                    .subscription_error
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("unsubscribe failed")
+            );
+        }
+
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        drop(cmd_tx);
+        let reconnect_client = FakeClient::new(sample_topics());
+        connect_and_run(reconnect_client.clone(), &state, &mut cmd_rx)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            reconnect_client.subscribe_calls(),
+            vec![vec!["/camera".to_string()]]
+        );
+    }
+
+    #[tokio::test]
+    async fn subscribe_failure_keeps_intent_for_reconnect_retry() {
+        let state = Arc::new(Mutex::new(AppState::default()));
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let client = FakeClient::new(sample_topics()).with_failed_subscribe_call(2);
+
+        let state_for_task = Arc::clone(&state);
+        let client_for_task = client.clone();
+        let handle = tokio::spawn(async move {
+            let mut cmd_rx = cmd_rx;
+            connect_and_run(client_for_task, &state_for_task, &mut cmd_rx).await
+        });
+
+        wait_for(|| client.subscribe_calls().len() == 1).await;
+
+        {
+            let mut app = state.lock().unwrap();
+            app.topic_selected = 1;
+            let request = app.toggle_selected_topic_subscription().unwrap();
+            assert_eq!(
+                request,
+                Request::Unsubscribe {
+                    topics: vec!["/rosout".to_string()]
+                }
+            );
+            cmd_tx.send(request).unwrap();
+        }
+
+        wait_for(|| {
+            let app = state.lock().unwrap();
+            app.topics
+                .get("/rosout")
+                .map(|topic| {
+                    topic.subscription == crate::state::TopicSubscriptionState::Unsubscribed
+                })
+                .unwrap_or(false)
+        })
+        .await;
+
+        {
+            let mut app = state.lock().unwrap();
+            app.topic_selected = 1;
+            let request = app.toggle_selected_topic_subscription().unwrap();
+            assert_eq!(
+                request,
+                Request::Subscribe {
+                    topics: vec!["/rosout".to_string()]
+                }
+            );
+            cmd_tx.send(request).unwrap();
+        }
+
+        let err = handle.await.unwrap().unwrap_err();
+        assert!(err.contains("subscribe failed"));
+
+        {
+            let app = state.lock().unwrap();
+            assert!(app.desired_subscriptions.contains("/rosout"));
+            assert_eq!(
+                app.topics["/rosout"].subscription,
+                crate::state::TopicSubscriptionState::Error
+            );
+            assert!(
+                app.topics["/rosout"]
+                    .subscription_error
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("subscribe failed")
+            );
+        }
+
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        drop(cmd_tx);
+        let reconnect_client = FakeClient::new(sample_topics());
+        connect_and_run(reconnect_client.clone(), &state, &mut cmd_rx)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            reconnect_client.subscribe_calls(),
+            vec![vec!["/camera".to_string(), "/rosout".to_string()]]
         );
     }
 }
