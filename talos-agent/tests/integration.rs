@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use talos_common::config::{
-    AgentConfig, SubscriptionConfig, TransportSettings, UdsTransportConfig,
+    AgentConfig, QosProfile, SubscriptionConfig, TransportSettings, UdsTransportConfig,
 };
 use talos_common::protocol::messages::{Request, Response};
 use talos_common::protocol::types::{DynValue, Timestamp};
@@ -37,10 +37,12 @@ fn test_config_uds(socket_path: &str) -> Arc<AgentConfig> {
             SubscriptionConfig {
                 topic: "/odom".to_string(),
                 msg_type: "nav_msgs/msg/Odometry".to_string(),
+                qos: QosProfile::Default,
             },
             SubscriptionConfig {
                 topic: "/joint_states".to_string(),
                 msg_type: "sensor_msgs/msg/JointState".to_string(),
+                qos: QosProfile::Default,
             },
         ],
         control: None,
@@ -238,6 +240,7 @@ async fn quic_client_subscribes_and_receives_data() {
         subscriptions: vec![SubscriptionConfig {
             topic: "/odom".to_string(),
             msg_type: "nav_msgs/msg/Odometry".to_string(),
+            qos: QosProfile::Default,
         }],
         control: None,
         poses: Default::default(),
@@ -316,6 +319,7 @@ async fn dual_mode_agent_serves_uds_and_quic() {
         subscriptions: vec![SubscriptionConfig {
             topic: "/odom".to_string(),
             msg_type: "nav_msgs/msg/Odometry".to_string(),
+            qos: QosProfile::Default,
         }],
         control: None,
         poses: Default::default(),
