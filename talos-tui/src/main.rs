@@ -11,8 +11,8 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 use talos_common::protocol::messages::Request;
 use tokio::sync::mpsc;
 
@@ -198,6 +198,22 @@ fn run_app(
                         s.log_severity_filter = levels[(idx + 1) % levels.len()];
                     }
 
+                    KeyCode::Char('s')
+                        if s.active_tab == Tab::Topics && s.active_pane == Pane::Left =>
+                    {
+                        if let Some(request) = s.toggle_selected_topic_subscription() {
+                            let topics = match &request {
+                                Request::Subscribe { topics } | Request::Unsubscribe { topics } => {
+                                    topics.clone()
+                                }
+                                _ => Vec::new(),
+                            };
+                            if cmd_tx.send(request).is_err() {
+                                s.mark_subscription_error(&topics, "client task stopped");
+                            }
+                        }
+                    }
+
                     // Joints tab specific
                     KeyCode::Char('j') if s.active_tab == Tab::Joints => {
                         s.joint_focus = JointFocus::JointList;
@@ -216,8 +232,7 @@ fn run_app(
                         }
                     }
                     KeyCode::Char('x')
-                        if s.active_tab == Tab::Joints
-                            && s.joint_focus == JointFocus::PoseList =>
+                        if s.active_tab == Tab::Joints && s.joint_focus == JointFocus::PoseList =>
                     {
                         if !s.poses.is_empty() {
                             s.pose_confirming = true;
@@ -312,8 +327,7 @@ fn handle_up(state: &mut AppState) {
 fn handle_down(state: &mut AppState) {
     match state.active_tab {
         Tab::Topics => {
-            if state.active_pane == Pane::Left
-                && state.topic_selected + 1 < state.topic_names.len()
+            if state.active_pane == Pane::Left && state.topic_selected + 1 < state.topic_names.len()
             {
                 state.topic_selected += 1;
             }
@@ -384,10 +398,7 @@ fn expand_first_level(
     if let talos_common::protocol::types::DynValue::Struct { fields, .. } = value {
         for (name, val) in fields {
             let field_path = format!("{path}.{name}");
-            if matches!(
-                val,
-                talos_common::protocol::types::DynValue::Struct { .. }
-            ) {
+            if matches!(val, talos_common::protocol::types::DynValue::Struct { .. }) {
                 expanded.insert(field_path, true);
             }
         }
@@ -416,10 +427,7 @@ fn toggle_first_level(
         // Find the first collapsed struct field and toggle it
         for (name, val) in fields {
             let field_path = format!("{path}.{name}");
-            if matches!(
-                val,
-                talos_common::protocol::types::DynValue::Struct { .. }
-            ) {
+            if matches!(val, talos_common::protocol::types::DynValue::Struct { .. }) {
                 let current = expanded.get(&field_path).copied().unwrap_or(false);
                 expanded.insert(field_path, !current);
                 return;

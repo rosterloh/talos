@@ -7,6 +7,10 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Added
+
+- Add per-topic subscribe and unsubscribe controls in the TUI Topics tab, with subscription choices preserved across reconnects.
+
 ### Changed
 
 - Cache mdBook tooling in the Docs workflow to reduce CI time.

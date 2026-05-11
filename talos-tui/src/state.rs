@@ -1,7 +1,7 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
-use talos_common::protocol::messages::Response;
+use talos_common::protocol::messages::{Request, Response};
 use talos_common::protocol::types::{DynValue, JointInfo, NodeInfo, PoseInfo, TopicInfo};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +47,48 @@ pub struct TopicData {
     pub last_received: Option<Instant>,
     pub msg_count: u64,
     pub hz: f64,
+    pub subscription: TopicSubscriptionState,
+    pub subscription_error: Option<String>,
+}
+
+impl TopicData {
+    fn placeholder(name: &str) -> Self {
+        Self {
+            info: TopicInfo {
+                name: name.to_string(),
+                type_name: String::new(),
+                publisher_count: 0,
+                subscriber_count: 0,
+            },
+            latest: None,
+            last_received: None,
+            msg_count: 0,
+            hz: 0.0,
+            subscription: TopicSubscriptionState::Unsubscribed,
+            subscription_error: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TopicSubscriptionState {
+    Subscribed,
+    Unsubscribed,
+    PendingSubscribe,
+    PendingUnsubscribe,
+    Error,
+}
+
+impl TopicSubscriptionState {
+    pub fn label(self) -> &'static str {
+        match self {
+            TopicSubscriptionState::Subscribed => "subscribed",
+            TopicSubscriptionState::Unsubscribed => "unsubscribed",
+            TopicSubscriptionState::PendingSubscribe => "pending subscribe",
+            TopicSubscriptionState::PendingUnsubscribe => "pending unsubscribe",
+            TopicSubscriptionState::Error => "error",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +166,8 @@ pub struct AppState {
     pub topic_names: Vec<String>,
     pub topic_selected: usize,
     pub tree_expanded: HashMap<String, bool>,
+    pub desired_subscriptions: HashSet<String>,
+    pub subscriptions_customized: bool,
 
     // Nodes tab
     pub nodes: Vec<NodeInfo>,
@@ -168,6 +212,8 @@ impl Default for AppState {
             topic_names: Vec::new(),
             topic_selected: 0,
             tree_expanded: HashMap::new(),
+            desired_subscriptions: HashSet::new(),
+            subscriptions_customized: false,
             nodes: Vec::new(),
             node_selected: 0,
             log_entries: VecDeque::new(),
@@ -196,13 +242,41 @@ impl AppState {
             Response::TopicList(topics) => {
                 for info in topics {
                     let name = info.name.clone();
-                    self.topics.entry(name.clone()).or_insert_with(|| TopicData {
-                        info,
-                        latest: None,
-                        last_received: None,
-                        msg_count: 0,
-                        hz: 0.0,
-                    });
+                    if !self.subscriptions_customized {
+                        self.desired_subscriptions.insert(name.clone());
+                    }
+
+                    let should_be_subscribed = self.desired_subscriptions.contains(&name);
+                    self.topics
+                        .entry(name.clone())
+                        .and_modify(|topic| {
+                            topic.info = info.clone();
+                            if !matches!(
+                                topic.subscription,
+                                TopicSubscriptionState::PendingSubscribe
+                                    | TopicSubscriptionState::PendingUnsubscribe
+                            ) && topic.subscription_error.is_none()
+                            {
+                                topic.subscription = if should_be_subscribed {
+                                    TopicSubscriptionState::Subscribed
+                                } else {
+                                    TopicSubscriptionState::Unsubscribed
+                                };
+                            }
+                        })
+                        .or_insert_with(|| TopicData {
+                            info,
+                            latest: None,
+                            last_received: None,
+                            msg_count: 0,
+                            hz: 0.0,
+                            subscription: if should_be_subscribed {
+                                TopicSubscriptionState::Subscribed
+                            } else {
+                                TopicSubscriptionState::Unsubscribed
+                            },
+                            subscription_error: None,
+                        });
                     if !self.topic_names.contains(&name) {
                         self.topic_names.push(name);
                     }
@@ -218,9 +292,15 @@ impl AppState {
                 stamp: _,
                 data,
             } => {
+                if !self.subscriptions_customized {
+                    self.desired_subscriptions.insert(topic.clone());
+                }
+                let should_be_subscribed = self.desired_subscriptions.contains(&topic);
                 let now = Instant::now();
-                let entry = self.topics.entry(topic.clone()).or_insert_with(|| {
-                    TopicData {
+                let entry = self
+                    .topics
+                    .entry(topic.clone())
+                    .or_insert_with(|| TopicData {
                         info: TopicInfo {
                             name: topic.clone(),
                             type_name: type_name.clone(),
@@ -231,8 +311,13 @@ impl AppState {
                         last_received: None,
                         msg_count: 0,
                         hz: 0.0,
-                    }
-                });
+                        subscription: if should_be_subscribed {
+                            TopicSubscriptionState::Subscribed
+                        } else {
+                            TopicSubscriptionState::Unsubscribed
+                        },
+                        subscription_error: None,
+                    });
 
                 // Update Hz estimate
                 if let Some(last) = entry.last_received {
@@ -278,9 +363,96 @@ impl AppState {
             Response::PoseList(poses) => {
                 self.poses = poses;
             }
-            // These are acknowledgement-only; no UI state update needed.
-            Response::Subscribed { .. } | Response::Unsubscribed { .. } | Response::Ok(_) => {}
+            Response::Subscribed { topics } => {
+                for sub in topics {
+                    let topic_name = sub.topic.clone();
+                    let entry = self
+                        .topics
+                        .entry(topic_name.clone())
+                        .or_insert_with(|| TopicData::placeholder(&topic_name));
+                    entry.info.type_name = sub.type_name;
+                    entry.subscription = TopicSubscriptionState::Subscribed;
+                    entry.subscription_error = None;
+                    if !self.topic_names.contains(&topic_name) {
+                        self.topic_names.push(topic_name);
+                    }
+                }
+                self.topic_names.sort();
+            }
+            Response::Unsubscribed { topics } => {
+                for topic_name in topics {
+                    let entry = self
+                        .topics
+                        .entry(topic_name.clone())
+                        .or_insert_with(|| TopicData::placeholder(&topic_name));
+                    entry.subscription = TopicSubscriptionState::Unsubscribed;
+                    entry.subscription_error = None;
+                }
+            }
+            Response::Ok(_) => {}
             Response::Error(_) => {}
+        }
+    }
+
+    pub fn desired_topics_for_connection(&self) -> Vec<String> {
+        self.topic_names
+            .iter()
+            .filter(|name| self.desired_subscriptions.contains(*name))
+            .cloned()
+            .collect()
+    }
+
+    pub fn toggle_selected_topic_subscription(&mut self) -> Option<Request> {
+        let topic = self.topic_names.get(self.topic_selected)?.clone();
+        self.subscriptions_customized = true;
+
+        if self.desired_subscriptions.remove(&topic) {
+            self.set_topic_subscription_state(&topic, TopicSubscriptionState::PendingUnsubscribe);
+            Some(Request::Unsubscribe {
+                topics: vec![topic],
+            })
+        } else {
+            self.desired_subscriptions.insert(topic.clone());
+            self.set_topic_subscription_state(&topic, TopicSubscriptionState::PendingSubscribe);
+            Some(Request::Subscribe {
+                topics: vec![topic],
+            })
+        }
+    }
+
+    pub fn mark_topics_pending_subscribe(&mut self, topics: &[String]) {
+        self.set_topics_subscription_state(topics, TopicSubscriptionState::PendingSubscribe);
+    }
+
+    pub fn mark_topics_pending_unsubscribe(&mut self, topics: &[String]) {
+        self.set_topics_subscription_state(topics, TopicSubscriptionState::PendingUnsubscribe);
+    }
+
+    pub fn mark_subscription_error(&mut self, topics: &[String], error: &str) {
+        for topic_name in topics {
+            let entry = self
+                .topics
+                .entry(topic_name.clone())
+                .or_insert_with(|| TopicData::placeholder(topic_name));
+            entry.subscription = TopicSubscriptionState::Error;
+            entry.subscription_error = Some(error.to_string());
+        }
+    }
+
+    fn set_topics_subscription_state(&mut self, topics: &[String], state: TopicSubscriptionState) {
+        for topic_name in topics {
+            self.set_topic_subscription_state(topic_name, state);
+        }
+    }
+
+    fn set_topic_subscription_state(&mut self, topic_name: &str, state: TopicSubscriptionState) {
+        let entry = self
+            .topics
+            .entry(topic_name.to_string())
+            .or_insert_with(|| TopicData::placeholder(topic_name));
+        entry.subscription = state;
+        if state != TopicSubscriptionState::Error {
+            entry.subscription_error = None;
         }
     }
 
@@ -328,12 +500,7 @@ impl AppState {
             let existing: HashMap<String, (Option<f64>, Option<f64>, Option<f64>)> = self
                 .joints
                 .iter()
-                .map(|j| {
-                    (
-                        j.info.name.clone(),
-                        (j.position, j.velocity, j.effort),
-                    )
-                })
+                .map(|j| (j.info.name.clone(), (j.position, j.velocity, j.effort)))
                 .collect();
 
             self.joints = joint_infos
@@ -358,12 +525,8 @@ impl AppState {
         self.log_entries
             .iter()
             .filter(|e| self.log_severity_filter.matches(&e.level))
-            .filter(|e| {
-                self.log_node_filter.is_empty() || e.node.contains(&self.log_node_filter)
-            })
-            .filter(|e| {
-                self.log_search.is_empty() || e.message.contains(&self.log_search)
-            })
+            .filter(|e| self.log_node_filter.is_empty() || e.node.contains(&self.log_node_filter))
+            .filter(|e| self.log_search.is_empty() || e.message.contains(&self.log_search))
             .collect()
     }
 }
@@ -390,16 +553,31 @@ fn extract_log_entry(data: &DynValue) -> Option<LogEntry> {
             .and_then(|(_, v)| {
                 if let DynValue::Struct { fields, .. } = v {
                     let sec = fields.iter().find(|(k, _)| k == "sec").and_then(|(_, v)| {
-                        if let DynValue::I32(s) = v { Some(*s) } else { None }
+                        if let DynValue::I32(s) = v {
+                            Some(*s)
+                        } else {
+                            None
+                        }
                     })?;
-                    let nanosec = fields.iter().find(|(k, _)| k == "nanosec").and_then(|(_, v)| {
-                        if let DynValue::U32(n) = v { Some(*n) } else { None }
-                    })?;
+                    let nanosec =
+                        fields
+                            .iter()
+                            .find(|(k, _)| k == "nanosec")
+                            .and_then(|(_, v)| {
+                                if let DynValue::U32(n) = v {
+                                    Some(*n)
+                                } else {
+                                    None
+                                }
+                            })?;
                     let total_secs = sec as u64;
                     let hours = (total_secs / 3600) % 24;
                     let mins = (total_secs / 60) % 60;
                     let secs = total_secs % 60;
-                    Some(format!("{hours:02}:{mins:02}:{secs:02}.{:03}", nanosec / 1_000_000))
+                    Some(format!(
+                        "{hours:02}:{mins:02}:{secs:02}.{:03}",
+                        nanosec / 1_000_000
+                    ))
                 } else {
                     None
                 }
@@ -439,4 +617,71 @@ fn extract_f64_array(fields: &[(String, DynValue)], name: &str) -> Vec<f64> {
             }
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn topic_list_defaults_to_subscribed_until_user_customizes() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![
+            TopicInfo {
+                name: "/camera".into(),
+                type_name: "sensor_msgs/msg/Image".into(),
+                publisher_count: 1,
+                subscriber_count: 0,
+            },
+            TopicInfo {
+                name: "/rosout".into(),
+                type_name: "rcl_interfaces/msg/Log".into(),
+                publisher_count: 1,
+                subscriber_count: 0,
+            },
+        ]));
+
+        assert_eq!(
+            state.desired_topics_for_connection(),
+            vec!["/camera".to_string(), "/rosout".to_string()]
+        );
+    }
+
+    #[test]
+    fn toggle_selected_topic_preserves_manual_subscription_choice() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![
+            TopicInfo {
+                name: "/camera".into(),
+                type_name: "sensor_msgs/msg/Image".into(),
+                publisher_count: 1,
+                subscriber_count: 0,
+            },
+            TopicInfo {
+                name: "/rosout".into(),
+                type_name: "rcl_interfaces/msg/Log".into(),
+                publisher_count: 1,
+                subscriber_count: 0,
+            },
+        ]));
+        state.topic_selected = 1;
+
+        let request = state.toggle_selected_topic_subscription();
+
+        assert_eq!(
+            request,
+            Some(Request::Unsubscribe {
+                topics: vec!["/rosout".to_string()]
+            })
+        );
+        assert!(state.subscriptions_customized);
+        assert_eq!(
+            state.desired_topics_for_connection(),
+            vec!["/camera".to_string()]
+        );
+        assert_eq!(
+            state.topics["/rosout"].subscription,
+            TopicSubscriptionState::PendingUnsubscribe
+        );
+    }
 }
