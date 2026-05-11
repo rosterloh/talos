@@ -267,10 +267,10 @@ fn subscription_badge(topic: &crate::state::TopicData) -> (String, Style) {
             ("[OFF]".to_string(), Style::default().fg(Color::DarkGray))
         }
         TopicSubscriptionState::PendingSubscribe => {
-            ("[..+]".to_string(), Style::default().fg(Color::Yellow))
+            ("[+..]".to_string(), Style::default().fg(Color::Yellow))
         }
         TopicSubscriptionState::PendingUnsubscribe => {
-            ("[..-]".to_string(), Style::default().fg(Color::Yellow))
+            ("[-..]".to_string(), Style::default().fg(Color::Yellow))
         }
         TopicSubscriptionState::Error => ("[ERR]".to_string(), Style::default().fg(Color::Red)),
     }

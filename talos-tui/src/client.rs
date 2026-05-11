@@ -562,6 +562,13 @@ mod tests {
             reconnect_client.subscribe_calls(),
             vec![vec!["/camera".to_string()]]
         );
+
+        let app = state.lock().unwrap();
+        assert_eq!(
+            app.topics["/rosout"].subscription,
+            crate::state::TopicSubscriptionState::Unsubscribed
+        );
+        assert_eq!(app.topics["/rosout"].subscription_error, None);
     }
 
     #[tokio::test]

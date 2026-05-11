@@ -45,7 +45,7 @@ pub fn draw(f: &mut Frame, area: Rect) {
         )),
         Line::from(vec![
             Span::styled("  s        ", Style::default().fg(Color::Yellow)),
-            Span::raw("Toggle selected topic subscription"),
+            Span::raw("Toggle selected topic subscription (either pane)"),
         ]),
         Line::from(""),
         Line::from(Span::styled(

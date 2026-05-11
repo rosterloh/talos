@@ -17,11 +17,16 @@ those entries into the versioned section when a release is created.
 - Cache mdBook tooling in the Docs workflow to reduce CI time.
 - Update the release workflow so feature development targets `dev` and version bumps run when `dev` is promoted to `main`.
 - Keep TUI topic ordering stable while subscription acknowledgements and refreshed topic lists arrive mid-session.
-- Stop reconnect requests from retrying topics that disappeared from the latest agent topic list.
+- Stop reconnect requests from retrying topics that disappeared from the latest agent topic list, and document that those topics drop out of the pane until re-advertised.
+- Treat a fresh `TopicList` as a reconnect catalog rather than proof of active subscriptions, which avoids false subscribed badges before subscribe acknowledgements land.
+- Let `s` toggle the selected topic from either Topics pane and make pending subscription badges easier to distinguish without relying on color.
 
 ### Fixed
 
 - Clear stale TUI topic subscription errors when later topic data confirms a desired subscription is healthy again.
+- Clear stale unsubscribe errors after reconnect when the desired state is already unsubscribed.
+- Ignore stale TUI subscribe or unsubscribe acknowledgements after desired topic intent changes.
+- Roll back optimistic TUI topic toggles if the client command channel has already stopped.
 
 ## [0.1.5] - 2026-04-28
 

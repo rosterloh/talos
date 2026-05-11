@@ -31,13 +31,14 @@ for the topic list and subscribes to all discovered topics by default so it can
 receive live data. If you manually toggle topic subscriptions, those choices are
 kept in the client state and re-applied after reconnect instead of subscribing
 to every topic again. Topics that disappear from the latest agent topic list are
-removed from the reconnect request until the agent advertises them again.
+removed from the Topics pane and reconnect request until the agent advertises
+them again, which also drops their cached sample/count history.
 
 ## Topics
 
 The Topics tab shows topic names and current message rates. Selecting a topic
-shows the latest `DynValue` tree for that topic. Press `s` with the topic list
-focused to subscribe or unsubscribe the selected topic. The list shows the
+shows the latest `DynValue` tree for that topic. Press `s` anywhere in the
+Topics tab to subscribe or unsubscribe the selected topic. The list shows the
 current subscription state, including pending changes and request errors.
 
 Before you customize anything, newly discovered topics inherit the default

@@ -92,6 +92,14 @@ impl TopicSubscriptionState {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct PendingTopicSubscriptionToggle {
+    pub(crate) request: Request,
+    topic: String,
+    previous_subscription: TopicSubscriptionState,
+    previous_subscription_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct LogEntry {
     pub timestamp: String,
     pub level: String,
@@ -167,6 +175,8 @@ pub struct AppState {
     pub topic_selected: usize,
     pub tree_expanded: HashMap<String, bool>,
     pub desired_subscriptions: HashSet<String>,
+    // Sticky on purpose: once a user makes any manual choice, later topic
+    // catalogs should keep honoring that explicit desired set across reconnects.
     pub subscriptions_customized: bool,
 
     // Nodes tab
@@ -244,6 +254,8 @@ impl AppState {
                 let mut current_topics = std::mem::take(&mut self.topics);
                 let mut next_topics = HashMap::with_capacity(topics.len());
                 let mut next_topic_names = Vec::with_capacity(topics.len());
+                // Missing topics are intentionally dropped from the visible
+                // catalog and cached samples until the agent advertises them again.
 
                 for info in topics {
                     let name = info.name.clone();
@@ -251,32 +263,33 @@ impl AppState {
 
                     let should_be_subscribed =
                         auto_subscribe_all || self.desired_subscriptions.contains(&name);
+                    // A topic catalog snapshot is not proof that this connection is
+                    // already subscribed. The subscribe request and its ack carry that.
                     let mut topic = current_topics.remove(&name).unwrap_or_else(|| TopicData {
                         info: info.clone(),
                         latest: None,
                         last_received: None,
                         msg_count: 0,
                         hz: 0.0,
-                        subscription: if should_be_subscribed {
-                            TopicSubscriptionState::Subscribed
-                        } else {
-                            TopicSubscriptionState::Unsubscribed
-                        },
+                        subscription: TopicSubscriptionState::Unsubscribed,
                         subscription_error: None,
                     });
 
                     topic.info = info;
-                    if !matches!(
+                    if matches!(
                         topic.subscription,
                         TopicSubscriptionState::PendingSubscribe
                             | TopicSubscriptionState::PendingUnsubscribe
-                    ) && topic.subscription_error.is_none()
+                    ) {
+                        // Keep in-flight manual changes visible until the matching
+                        // ack or retry path resolves them.
+                    } else if topic.subscription == TopicSubscriptionState::Error
+                        && !should_be_subscribed
                     {
-                        topic.subscription = if should_be_subscribed {
-                            TopicSubscriptionState::Subscribed
-                        } else {
-                            TopicSubscriptionState::Unsubscribed
-                        };
+                        topic.subscription = TopicSubscriptionState::Unsubscribed;
+                        topic.subscription_error = None;
+                    } else if topic.subscription != TopicSubscriptionState::Error {
+                        topic.subscription = TopicSubscriptionState::Unsubscribed;
                     }
 
                     next_topics.insert(name, topic);
@@ -379,6 +392,9 @@ impl AppState {
             Response::Subscribed { topics } => {
                 for sub in topics {
                     let topic_name = sub.topic.clone();
+                    if !self.desired_subscriptions.contains(&topic_name) {
+                        continue;
+                    }
                     let entry = self
                         .topics
                         .entry(topic_name.clone())
@@ -405,6 +421,9 @@ impl AppState {
             }
             Response::Unsubscribed { topics } => {
                 for topic_name in topics {
+                    if self.desired_subscriptions.contains(&topic_name) {
+                        continue;
+                    }
                     let entry = self
                         .topics
                         .entry(topic_name.clone())
@@ -448,6 +467,55 @@ impl AppState {
                 topics: vec![topic],
             })
         }
+    }
+
+    pub(crate) fn prepare_selected_topic_subscription_toggle(
+        &mut self,
+    ) -> Option<PendingTopicSubscriptionToggle> {
+        let topic = self.topic_names.get(self.topic_selected)?.clone();
+        let previous_subscription = self
+            .topics
+            .get(&topic)
+            .map(|entry| entry.subscription)
+            .unwrap_or(TopicSubscriptionState::Unsubscribed);
+        let previous_subscription_error = self
+            .topics
+            .get(&topic)
+            .and_then(|entry| entry.subscription_error.clone());
+        let request = self.toggle_selected_topic_subscription()?;
+
+        Some(PendingTopicSubscriptionToggle {
+            request,
+            topic,
+            previous_subscription,
+            previous_subscription_error,
+        })
+    }
+
+    pub(crate) fn revert_topic_subscription_toggle(
+        &mut self,
+        toggle: PendingTopicSubscriptionToggle,
+    ) {
+        match &toggle.request {
+            Request::Subscribe { topics } => {
+                for topic_name in topics {
+                    self.desired_subscriptions.remove(topic_name);
+                }
+            }
+            Request::Unsubscribe { topics } => {
+                for topic_name in topics {
+                    self.desired_subscriptions.insert(topic_name.clone());
+                }
+            }
+            _ => return,
+        }
+
+        let entry = self
+            .topics
+            .entry(toggle.topic.clone())
+            .or_insert_with(|| TopicData::placeholder(&toggle.topic));
+        entry.subscription = toggle.previous_subscription;
+        entry.subscription_error = toggle.previous_subscription_error;
     }
 
     pub fn mark_topics_pending_subscribe(&mut self, topics: &[String]) {
@@ -707,7 +775,7 @@ mod tests {
     }
 
     #[test]
-    fn topic_list_defaults_to_subscribed_until_user_customizes() {
+    fn topic_list_defaults_reconnect_intent_to_all_topics_until_user_customizes() {
         let mut state = AppState::default();
         state.handle_response(Response::TopicList(vec![
             topic("/camera", "sensor_msgs/msg/Image"),
@@ -717,6 +785,20 @@ mod tests {
         assert_eq!(
             state.desired_topics_for_connection(),
             vec!["/camera".to_string(), "/rosout".to_string()]
+        );
+    }
+
+    #[test]
+    fn topic_list_does_not_speculatively_mark_desired_topics_subscribed() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![topic(
+            "/camera",
+            "sensor_msgs/msg/Image",
+        )]));
+
+        assert_eq!(
+            state.topics["/camera"].subscription,
+            TopicSubscriptionState::Unsubscribed
         );
     }
 
@@ -749,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn subscribed_response_keeps_selected_topic_stable_when_new_topic_is_inserted() {
+    fn ignored_subscribed_ack_keeps_selected_topic_stable() {
         let mut state = AppState::default();
         state.handle_response(Response::TopicList(vec![
             topic("/beta", "std_msgs/msg/String"),
@@ -766,11 +848,7 @@ mod tests {
 
         assert_eq!(
             state.topic_names,
-            vec![
-                "/alpha".to_string(),
-                "/beta".to_string(),
-                "/delta".to_string()
-            ]
+            vec!["/beta".to_string(), "/delta".to_string()]
         );
         assert_eq!(state.topic_names[state.topic_selected], "/delta");
     }
@@ -823,6 +901,96 @@ mod tests {
             state.topics["/lidar"].subscription,
             TopicSubscriptionState::Unsubscribed
         );
+    }
+
+    #[test]
+    fn topic_list_clears_stale_unsubscribe_errors_once_desired_state_is_off() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![
+            topic("/camera", "sensor_msgs/msg/Image"),
+            topic("/rosout", "rcl_interfaces/msg/Log"),
+        ]));
+        state.topic_selected = 1;
+
+        assert_eq!(
+            state.toggle_selected_topic_subscription(),
+            Some(Request::Unsubscribe {
+                topics: vec!["/rosout".to_string()]
+            })
+        );
+        state.mark_subscription_error(&["/rosout".to_string()], "boom");
+
+        state.handle_response(Response::TopicList(vec![
+            topic("/camera", "sensor_msgs/msg/Image"),
+            topic("/rosout", "rcl_interfaces/msg/Log"),
+        ]));
+
+        assert_eq!(
+            state.topics["/rosout"].subscription,
+            TopicSubscriptionState::Unsubscribed
+        );
+        assert_eq!(state.topics["/rosout"].subscription_error, None);
+    }
+
+    #[test]
+    fn stale_subscribed_ack_does_not_override_pending_unsubscribe() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![topic(
+            "/camera",
+            "sensor_msgs/msg/Image",
+        )]));
+
+        assert_eq!(
+            state.toggle_selected_topic_subscription(),
+            Some(Request::Unsubscribe {
+                topics: vec!["/camera".to_string()]
+            })
+        );
+
+        state.handle_response(Response::Subscribed {
+            topics: vec![TopicSub {
+                topic: "/camera".into(),
+                type_name: "sensor_msgs/msg/Image".into(),
+            }],
+        });
+
+        assert_eq!(
+            state.topics["/camera"].subscription,
+            TopicSubscriptionState::PendingUnsubscribe
+        );
+        assert!(!state.desired_subscriptions.contains("/camera"));
+    }
+
+    #[test]
+    fn stale_unsubscribed_ack_does_not_override_pending_subscribe() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![topic(
+            "/camera",
+            "sensor_msgs/msg/Image",
+        )]));
+
+        assert_eq!(
+            state.toggle_selected_topic_subscription(),
+            Some(Request::Unsubscribe {
+                topics: vec!["/camera".to_string()]
+            })
+        );
+        assert_eq!(
+            state.toggle_selected_topic_subscription(),
+            Some(Request::Subscribe {
+                topics: vec!["/camera".to_string()]
+            })
+        );
+
+        state.handle_response(Response::Unsubscribed {
+            topics: vec!["/camera".to_string()],
+        });
+
+        assert_eq!(
+            state.topics["/camera"].subscription,
+            TopicSubscriptionState::PendingSubscribe
+        );
+        assert!(state.desired_subscriptions.contains("/camera"));
     }
 
     #[test]

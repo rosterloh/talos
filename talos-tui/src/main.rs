@@ -198,20 +198,8 @@ fn run_app(
                         s.log_severity_filter = levels[(idx + 1) % levels.len()];
                     }
 
-                    KeyCode::Char('s')
-                        if s.active_tab == Tab::Topics && s.active_pane == Pane::Left =>
-                    {
-                        if let Some(request) = s.toggle_selected_topic_subscription() {
-                            let topics = match &request {
-                                Request::Subscribe { topics } | Request::Unsubscribe { topics } => {
-                                    topics.clone()
-                                }
-                                _ => Vec::new(),
-                            };
-                            if cmd_tx.send(request).is_err() {
-                                s.mark_subscription_error(&topics, "client task stopped");
-                            }
-                        }
+                    KeyCode::Char('s') if s.active_tab == Tab::Topics => {
+                        handle_topic_subscription_toggle(&mut s, cmd_tx);
                     }
 
                     // Joints tab specific
@@ -242,6 +230,14 @@ fn run_app(
                     _ => {}
                 }
             }
+        }
+    }
+}
+
+fn handle_topic_subscription_toggle(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
+    if let Some(toggle) = state.prepare_selected_topic_subscription_toggle() {
+        if cmd_tx.send(toggle.request.clone()).is_err() {
+            state.revert_topic_subscription_toggle(toggle);
         }
     }
 }
@@ -433,5 +429,48 @@ fn toggle_first_level(
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use talos_common::protocol::messages::Response;
+    use talos_common::protocol::types::{TopicInfo, TopicSub};
+
+    fn topic(name: &str, type_name: &str) -> TopicInfo {
+        TopicInfo {
+            name: name.into(),
+            type_name: type_name.into(),
+            publisher_count: 1,
+            subscriber_count: 0,
+        }
+    }
+
+    #[test]
+    fn failed_send_reverts_topic_toggle_state() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![topic(
+            "/camera",
+            "sensor_msgs/msg/Image",
+        )]));
+        state.handle_response(Response::Subscribed {
+            topics: vec![TopicSub {
+                topic: "/camera".into(),
+                type_name: "sensor_msgs/msg/Image".into(),
+            }],
+        });
+
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        drop(cmd_rx);
+
+        handle_topic_subscription_toggle(&mut state, &cmd_tx);
+
+        assert!(state.desired_subscriptions.contains("/camera"));
+        assert_eq!(
+            state.topics["/camera"].subscription,
+            TopicSubscriptionState::Subscribed
+        );
+        assert_eq!(state.topics["/camera"].subscription_error, None);
     }
 }
