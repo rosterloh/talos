@@ -40,7 +40,7 @@ fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
                 .topics
                 .get(name)
                 .map(subscription_badge)
-                .unwrap_or(("[OFF]".to_string(), Style::default().fg(Color::DarkGray)));
+                .unwrap_or(("[OFF]", Style::default().fg(Color::DarkGray)));
 
             let marker = if i == state.topic_selected {
                 "▶ "
@@ -57,7 +57,8 @@ fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
 
             ListItem::new(Line::from(vec![
                 Span::styled(marker, style),
-                Span::styled(format!("{subscription_badge} "), subscription_style),
+                Span::styled(subscription_badge, subscription_style),
+                Span::raw(" "),
                 Span::styled(name, style),
                 Span::styled(format!("  {hz_str}"), Style::default().fg(Color::DarkGray)),
             ]))
@@ -118,7 +119,7 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
         if let Some(error) = &topic.subscription_error {
             lines.push(Line::from(vec![
                 Span::styled("Last error: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(error.clone(), Style::default().fg(Color::Red)),
+                Span::styled(error.as_str(), Style::default().fg(Color::Red)),
             ]));
         }
         lines.push(Line::from(""));
@@ -258,20 +259,12 @@ fn format_value(value: &DynValue) -> String {
     }
 }
 
-fn subscription_badge(topic: &crate::state::TopicData) -> (String, Style) {
+fn subscription_badge(topic: &crate::state::TopicData) -> (&'static str, Style) {
     match topic.subscription {
-        TopicSubscriptionState::Subscribed => {
-            ("[ON ]".to_string(), Style::default().fg(Color::Green))
-        }
-        TopicSubscriptionState::Unsubscribed => {
-            ("[OFF]".to_string(), Style::default().fg(Color::DarkGray))
-        }
-        TopicSubscriptionState::PendingSubscribe => {
-            ("[+..]".to_string(), Style::default().fg(Color::Yellow))
-        }
-        TopicSubscriptionState::PendingUnsubscribe => {
-            ("[-..]".to_string(), Style::default().fg(Color::Yellow))
-        }
-        TopicSubscriptionState::Error => ("[ERR]".to_string(), Style::default().fg(Color::Red)),
+        TopicSubscriptionState::Subscribed => ("[ON ]", Style::default().fg(Color::Green)),
+        TopicSubscriptionState::Unsubscribed => ("[OFF]", Style::default().fg(Color::DarkGray)),
+        TopicSubscriptionState::PendingSubscribe => ("[+..]", Style::default().fg(Color::Yellow)),
+        TopicSubscriptionState::PendingUnsubscribe => ("[-..]", Style::default().fg(Color::Yellow)),
+        TopicSubscriptionState::Error => ("[ERR]", Style::default().fg(Color::Red)),
     }
 }
