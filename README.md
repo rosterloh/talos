@@ -30,11 +30,12 @@ Build the shared library and workstation clients without ROS 2:
 cargo check -p talos-common -p talos-cli -p talos-tui
 ```
 
-Build the full workspace after sourcing the ROS 2/rclrs environment:
+Build the full workspace inside the ROS 2 Lyrical Pixi environment (it provides
+the ROS 2 runtime and Rust message bindings; `rclrs` comes from crates.io):
 
 ```bash
-source rclrs_ws/install/setup.bash
-cargo check --workspace
+pixi install
+pixi run check          # or: pixi shell, then cargo check --workspace
 ```
 
 Enable QUIC support with:

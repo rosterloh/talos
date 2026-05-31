@@ -33,6 +33,19 @@ those entries into the versioned section when a release is created.
   shared `protocol::codec::{to_vec, from_slice}` helpers. (crates.io lists
   a `bincode` 3.0.0, but it is an empty placeholder release; 2.x is the
   current real release line.)
+- Upgrade the ROS 2 environment from Kilted to Lyrical Luth and stop building
+  `rclrs` from source. `rclrs` and `rosidl_runtime_rs` now come from crates.io,
+  and the `robostack-lyrical` conda packages provide the ROS 2 runtime plus
+  pre-generated Rust message bindings, which `.cargo/config.toml` patches in.
+- Move the Pixi manifest to the repository root (from `rclrs_ws/`) and slim it to
+  `ros-lyrical-ros-base` + the Rust toolchain. Removed the `rclrs_ws` colcon /
+  vcstool source-build workspace and its `setup.bash` step; building now only
+  needs `pixi install` then `cargo build`.
+
+> Building `talos-agent` is blocked until an `rclrs` release with ROS 2 Lyrical
+> support lands on crates.io (upstream PR
+> [ros2-rust/ros2_rust#640](https://github.com/ros2-rust/ros2_rust/pull/640)).
+> The client crates are unaffected.
 
 ## [0.2.0] - 2026-06-10
 

@@ -17,12 +17,21 @@ cargo check -p talos-common -p talos-cli -p talos-tui
 
 ## Build Everything
 
-The agent depends on `rclrs`, so source the ROS 2/rclrs workspace first:
+The agent depends on `rclrs`. Install the Pixi environment — it provides the ROS
+2 Lyrical runtime and the pre-generated Rust message bindings (`rclrs` itself
+comes from crates.io; `.cargo/config.toml` patches the message crates to the
+environment). Then build inside it:
 
 ```bash
-source rclrs_ws/install/setup.bash
-cargo check --workspace
+pixi install                 # one time
+pixi run check               # or: pixi shell, then cargo check --workspace
 ```
+
+> **Note:** Building the agent needs an `rclrs` release with ROS 2 Lyrical
+> support, which is pending upstream PR
+> [ros2-rust/ros2_rust#640](https://github.com/ros2-rust/ros2_rust/pull/640).
+> Until it lands on crates.io, the agent build fails with
+> `Unsupported ROS distribution`. The client crates build without ROS 2.
 
 ## Enable QUIC
 

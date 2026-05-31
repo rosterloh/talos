@@ -1,0 +1,22 @@
+[workspace]
+authors = ["Richard Osterloh <richard.osterloh@gmail.com>"]
+channels = ["https://repo.prefix.dev/robostack-lyrical", "conda-forge"]
+name = "talos"
+platforms = ["linux-64", "linux-aarch64"]
+version = "0.1.5"
+
+# The agent links rclrs (from crates.io) against the ROS 2 Lyrical runtime and
+# the pre-generated Rust message bindings shipped by the robostack-lyrical
+# conda packages. No ROS 2 source build is required — `.cargo/config.toml`
+# patches the message crates to the bindings in this environment.
+[tasks]
+build = "cargo build"
+build-quic = "cargo build --features quic"
+check = "cargo check --workspace"
+test = "cargo test --workspace"
+
+[dependencies]
+ros-lyrical-ros-base = ">=0.13.0,<0.14"
+rust = ">=1.93.0,<1.94"
+pkg-config = ">=0.29.2,<0.30"
+compilers = ">=1.11.0,<2"

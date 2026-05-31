@@ -9,28 +9,33 @@ Talos is a terminal-native tool for observing and interacting with ROS 2 systems
 ## Build Commands
 
 ```bash
-# ROS 2 environment is required for talos-agent (rclrs bindings)
-source rclrs_ws/install/setup.bash
+# ROS 2 Lyrical environment (Pixi) is required for talos-agent. It provides the
+# ROS 2 runtime + pre-generated Rust message bindings; rclrs comes from
+# crates.io and .cargo/config.toml patches the message crates to the env.
+pixi install                 # one time: resolve the robostack-lyrical env
+pixi shell                   # enter the env (or prefix commands with `pixi run`)
 
-# Build / check everything
-cargo build
+# Build / check everything (inside the pixi shell, or via `pixi run <task>`)
+cargo build                  # or: pixi run build
 cargo check --workspace
 
-# Build without ROS 2 (cli, tui, common only)
+# Build without ROS 2 (cli, tui, common only) — no pixi env needed
 cargo check -p talos-common -p talos-cli -p talos-tui
 
 # Enable QUIC transport (feature-gated across all crates)
-cargo build --features quic
+cargo build --features quic  # or: pixi run build-quic
 
 # Tests
-cargo test --workspace                        # all tests
+cargo test --workspace                        # all tests (or: pixi run test)
 cargo test -p talos-common                    # protocol, config, URDF tests
 cargo test -p talos-agent --test integration  # UDS integration tests
 cargo test -p talos-agent --test integration --features quic  # + QUIC tests
-
-# ROS 2 workspace (Pixi-managed, only needed once or after rclrs changes)
-cd rclrs_ws && pixi run build
 ```
+
+> **Pending:** Building `talos-agent` needs an `rclrs` release with ROS 2 Lyrical
+> support (upstream PR [ros2-rust/ros2_rust#640](https://github.com/ros2-rust/ros2_rust/pull/640)).
+> Until it lands on crates.io, the agent build fails with `Unsupported ROS
+> distribution`. The non-ROS crates are unaffected.
 
 ## Default Change Workflow
 
