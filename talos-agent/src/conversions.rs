@@ -269,6 +269,21 @@ pub fn pose_stamped_to_dynvalue(msg: &geometry_msgs::msg::PoseStamped) -> DynVal
     }
 }
 
+/// "Dumb relay" conversion for camera frames: the agent forwards the already
+/// encoded image bytes verbatim, never decoding them. `format` carries the
+/// codec/transport string (e.g. `"jpeg"`, `"rgb8; jpeg compressed bgr8"`) so the
+/// client knows how to decode; `data` is the opaque compressed payload.
+pub fn compressed_image_to_dynvalue(msg: &sensor_msgs::msg::CompressedImage) -> DynValue {
+    DynValue::Struct {
+        type_name: "CompressedImage".into(),
+        fields: vec![
+            ("header".into(), header_to_dynvalue(&msg.header)),
+            ("format".into(), DynValue::String(msg.format.clone())),
+            ("data".into(), DynValue::Bytes(msg.data.clone())),
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +362,25 @@ mod tests {
         let dv = pose_stamped_to_dynvalue(&msg);
         let names = field_names(&dv);
         assert_eq!(names, &["header", "pose"]);
+    }
+
+    #[test]
+    fn compressed_image_forwards_bytes_verbatim() {
+        let mut msg = sensor_msgs::msg::CompressedImage::default();
+        msg.format = "jpeg".into();
+        msg.data = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        let dv = compressed_image_to_dynvalue(&msg);
+        assert_eq!(field_names(&dv), &["header", "format", "data"]);
+        match &dv {
+            DynValue::Struct { fields, .. } => {
+                let data = fields.iter().find(|(k, _)| k == "data").map(|(_, v)| v);
+                match data.expect("data field") {
+                    DynValue::Bytes(b) => assert_eq!(b, &[0xFF, 0xD8, 0xFF, 0xE0]),
+                    _ => panic!("data is not Bytes"),
+                }
+            }
+            _ => panic!("expected Struct"),
+        }
     }
 }
 

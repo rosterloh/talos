@@ -14,6 +14,7 @@ those entries into the versioned section when a release is created.
 - Add `sensor_msgs/msg/LaserScan` subscription support with full field conversion (`header`, `angle_min/max/increment`, `time_increment`, `scan_time`, `range_min/max`, `ranges`, `intensities`).
 - Add `sensor_msgs/msg/Imu` subscription support with full field conversion (`header`, `orientation` + covariance, `angular_velocity` + covariance, `linear_acceleration` + covariance).
 - Add `geometry_msgs/msg/PoseStamped` subscription support (`header`, `pose`).
+- Add prototype `sensor_msgs/msg/CompressedImage` "dumb relay" support: the agent forwards encoded camera frames (`header`, `format`, `data`) verbatim without decoding, over the existing topic pipeline. See the roadmap for the moq-inspired scaling path.
 - Add per-subscription `qos` config field accepting `"default"` (Reliable, Volatile, KeepLast — rclrs default depth) or `"sensor_data"` (BestEffort, Volatile, KeepLast 5). Omitting `qos` preserves existing behavior.
 
 ### Changed

@@ -79,9 +79,25 @@ qos = "sensor_data"
 [[subscriptions]]
 topic = "/pose"
 type = "geometry_msgs/msg/PoseStamped"
+
+# Camera frames: the agent forwards already-encoded image bytes verbatim
+# ("dumb relay") without decoding them. Publish a CompressedImage topic, e.g.
+# via image_transport's republish node, and use sensor_data QoS.
+[[subscriptions]]
+topic = "/camera/image_raw/compressed"
+type = "sensor_msgs/msg/CompressedImage"
+qos = "sensor_data"
 ```
 
 Unknown message types are skipped by the agent.
+
+> **Camera streams (prototype).** `sensor_msgs/msg/CompressedImage` is forwarded
+> as `{ header, format, data }` where `data` is the opaque compressed payload
+> (JPEG/PNG/etc.) — the agent never decodes it. This works over the existing
+> reliable topic pipeline, which is fine for compressed frames within the 16 MiB
+> frame cap. Raw `sensor_msgs/msg/Image` and a moq-style per-frame-group stream
+> with stale-frame dropping are intentionally **not** part of this prototype; see
+> the roadmap.
 
 ## Joint Control
 

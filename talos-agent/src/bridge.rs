@@ -171,6 +171,26 @@ pub async fn run(
                 )?;
                 info!(topic = %topic, msg_type = %type_name, "subscribed");
             }
+            "sensor_msgs/msg/CompressedImage" => {
+                // Dumb relay: forward encoded camera frames without decoding.
+                let topic_clone = topic.clone();
+                let type_clone = type_name.clone();
+                node.create_subscription::<sensor_msgs::msg::CompressedImage, _>(
+                    opts,
+                    move |msg: sensor_msgs::msg::CompressedImage| {
+                        let stamp = timestamp_from_builtin(&msg.header.stamp);
+                        let data = compressed_image_to_dynvalue(&msg);
+                        let response = Response::TopicData {
+                            topic: topic_clone.clone(),
+                            type_name: type_clone.clone(),
+                            stamp,
+                            data,
+                        };
+                        let _ = tx.send(response);
+                    },
+                )?;
+                info!(topic = %topic, msg_type = %type_name, "subscribed");
+            }
             "rcl_interfaces/msg/Log" => {
                 let topic_clone = topic.clone();
                 let type_clone = type_name.clone();
