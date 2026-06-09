@@ -1,4 +1,91 @@
+use std::error::Error;
+
+use talos_common::protocol::messages::Response;
 use talos_common::protocol::types::{DynValue, Timestamp};
+use tokio::sync::mpsc;
+
+pub type TopicSender = mpsc::UnboundedSender<Response>;
+type SubscribeResult = Result<(), Box<dyn Error + Send + Sync>>;
+type SubscribeFn = for<'a> fn(
+    &rclrs::Node,
+    rclrs::PrimitiveOptions<'a>,
+    String,
+    String,
+    TopicSender,
+) -> SubscribeResult;
+
+pub struct MessageTypeEntry {
+    pub type_name: &'static str,
+    subscribe: SubscribeFn,
+}
+
+impl MessageTypeEntry {
+    pub fn subscribe(
+        &self,
+        node: &rclrs::Node,
+        opts: rclrs::PrimitiveOptions<'_>,
+        topic: String,
+        type_name: String,
+        tx: TopicSender,
+    ) -> SubscribeResult {
+        (self.subscribe)(node, opts, topic, type_name, tx)
+    }
+}
+
+fn send_topic_data(
+    tx: &TopicSender,
+    topic: &str,
+    type_name: &str,
+    stamp: Timestamp,
+    data: DynValue,
+) {
+    let _ = tx.send(Response::TopicData {
+        topic: topic.to_string(),
+        type_name: type_name.to_string(),
+        stamp,
+        data,
+    });
+}
+
+macro_rules! message_registry {
+    (
+        $(
+            $subscribe_fn:ident: $type_name:literal => $msg_ty:ty,
+            stamp = $stamp:expr,
+            convert = $convert:path;
+        )+
+    ) => {
+        const SUPPORTED_MESSAGE_TYPES: &[&str] = &[
+            $($type_name,)+
+        ];
+
+        const MESSAGE_TYPE_ENTRIES: &[MessageTypeEntry] = &[
+            $(
+                MessageTypeEntry {
+                    type_name: $type_name,
+                    subscribe: $subscribe_fn,
+                },
+            )+
+        ];
+
+        $(
+            fn $subscribe_fn(
+                node: &rclrs::Node,
+                opts: rclrs::PrimitiveOptions<'_>,
+                topic: String,
+                type_name: String,
+                tx: TopicSender,
+            ) -> SubscribeResult {
+                node.create_subscription::<$msg_ty, _>(opts, move |msg: $msg_ty| {
+                    let stamp = ($stamp)(&msg);
+                    let data = $convert(&msg);
+                    send_topic_data(&tx, &topic, &type_name, stamp, data);
+                })?;
+                Ok(())
+            }
+        )+
+    };
+}
 
 pub fn timestamp_from_builtin(t: &builtin_interfaces::msg::Time) -> Timestamp {
     Timestamp {
@@ -269,6 +356,43 @@ pub fn pose_stamped_to_dynvalue(msg: &geometry_msgs::msg::PoseStamped) -> DynVal
     }
 }
 
+message_registry! {
+    subscribe_odometry: "nav_msgs/msg/Odometry" => nav_msgs::msg::Odometry,
+        stamp = |msg: &nav_msgs::msg::Odometry| timestamp_from_builtin(&msg.header.stamp),
+        convert = odometry_to_dynvalue;
+    subscribe_twist: "geometry_msgs/msg/Twist" => geometry_msgs::msg::Twist,
+        stamp = |_msg: &geometry_msgs::msg::Twist| Timestamp { sec: 0, nanosec: 0 },
+        convert = twist_msg_to_dynvalue;
+    subscribe_string: "std_msgs/msg/String" => std_msgs::msg::String,
+        stamp = |_msg: &std_msgs::msg::String| Timestamp { sec: 0, nanosec: 0 },
+        convert = string_to_dynvalue;
+    subscribe_joint_state: "sensor_msgs/msg/JointState" => sensor_msgs::msg::JointState,
+        stamp = |msg: &sensor_msgs::msg::JointState| timestamp_from_builtin(&msg.header.stamp),
+        convert = joint_state_to_dynvalue;
+    subscribe_laser_scan: "sensor_msgs/msg/LaserScan" => sensor_msgs::msg::LaserScan,
+        stamp = |msg: &sensor_msgs::msg::LaserScan| timestamp_from_builtin(&msg.header.stamp),
+        convert = laser_scan_to_dynvalue;
+    subscribe_imu: "sensor_msgs/msg/Imu" => sensor_msgs::msg::Imu,
+        stamp = |msg: &sensor_msgs::msg::Imu| timestamp_from_builtin(&msg.header.stamp),
+        convert = imu_to_dynvalue;
+    subscribe_pose_stamped: "geometry_msgs/msg/PoseStamped" => geometry_msgs::msg::PoseStamped,
+        stamp = |msg: &geometry_msgs::msg::PoseStamped| timestamp_from_builtin(&msg.header.stamp),
+        convert = pose_stamped_to_dynvalue;
+    subscribe_log: "rcl_interfaces/msg/Log" => rcl_interfaces::msg::Log,
+        stamp = |msg: &rcl_interfaces::msg::Log| timestamp_from_builtin(&msg.stamp),
+        convert = log_to_dynvalue;
+}
+
+pub fn supported_message_types() -> &'static [&'static str] {
+    SUPPORTED_MESSAGE_TYPES
+}
+
+pub fn message_type_entry(type_name: &str) -> Option<&'static MessageTypeEntry> {
+    MESSAGE_TYPE_ENTRIES
+        .iter()
+        .find(|entry| entry.type_name == type_name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +471,34 @@ mod tests {
         let dv = pose_stamped_to_dynvalue(&msg);
         let names = field_names(&dv);
         assert_eq!(names, &["header", "pose"]);
+    }
+
+    #[test]
+    fn supported_message_registry_lists_current_types_once() {
+        let supported = supported_message_types();
+        assert_eq!(
+            supported,
+            &[
+                "nav_msgs/msg/Odometry",
+                "geometry_msgs/msg/Twist",
+                "std_msgs/msg/String",
+                "sensor_msgs/msg/JointState",
+                "sensor_msgs/msg/LaserScan",
+                "sensor_msgs/msg/Imu",
+                "geometry_msgs/msg/PoseStamped",
+                "rcl_interfaces/msg/Log",
+            ]
+        );
+
+        let mut sorted = supported.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), supported.len());
+
+        for type_name in supported {
+            assert!(message_type_entry(type_name).is_some());
+        }
+        assert!(message_type_entry("geometry_msgs/msg/Pose").is_none());
     }
 }
 

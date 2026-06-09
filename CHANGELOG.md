@@ -18,6 +18,7 @@ those entries into the versioned section when a release is created.
 
 ### Changed
 
+- Centralize talos-agent supported ROS message type subscription wiring in a registry for easier message support additions.
 - Cache mdBook tooling in the Docs workflow to reduce CI time.
 - Update the release workflow so feature development targets `dev` and version bumps run when `dev` is promoted to `main`.
 - Keep TUI topic ordering stable while subscription acknowledgements and refreshed topic lists arrive mid-session.
