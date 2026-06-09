@@ -24,6 +24,7 @@ those entries into the versioned section when a release is created.
 - Stop reconnect requests from retrying topics that disappeared from the latest agent topic list, and document that those topics drop out of the pane until re-advertised.
 - Treat a fresh `TopicList` as a reconnect catalog rather than proof of active subscriptions, which avoids false subscribed badges before subscribe acknowledgements land.
 - Let `s` toggle the selected topic from either Topics pane and make pending subscription badges easier to distinguish without relying on color.
+- Split TUI input handling from terminal setup so key behavior can be tested independently of the terminal lifecycle.
 
 ### Fixed
 
