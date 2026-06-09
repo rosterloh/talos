@@ -19,6 +19,7 @@ those entries into the versioned section when a release is created.
 ### Changed
 
 - Cache mdBook tooling in the Docs workflow to reduce CI time.
+- Split TUI app state topic, log, and joint behavior into focused state modules without changing UI behavior.
 - Update the release workflow so feature development targets `dev` and version bumps run when `dev` is promoted to `main`.
 - Keep TUI topic ordering stable while subscription acknowledgements and refreshed topic lists arrive mid-session.
 - Stop reconnect requests from retrying topics that disappeared from the latest agent topic list, and document that those topics drop out of the pane until re-advertised.
