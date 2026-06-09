@@ -1,3 +1,14 @@
+//! Transport endpoint, listener, and connection plumbing.
+//!
+//! This module owns how Talos opens concrete communication paths. It does not
+//! define request/response schema and it is not the preferred API for CLI/TUI
+//! application code. Use:
+//!
+//! - [`crate::protocol`] for wire schema and frame encoding.
+//! - [`crate::session`] for the application-facing client API.
+//! - this module when binding listeners, accepting connections, connecting raw
+//!   endpoints, or adding a concrete transport implementation.
+
 pub mod uds;
 
 #[cfg(feature = "quic")]

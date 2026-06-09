@@ -7,6 +7,7 @@
 
 - [Overview](architecture/overview.md)
 - [Agent and Clients](architecture/agent-client-model.md)
+- [Source Map](architecture/source-map.md)
 - [Protocol](architecture/protocol.md)
 - [Transports](architecture/transports.md)
 
