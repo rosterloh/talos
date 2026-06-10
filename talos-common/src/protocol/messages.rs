@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::types::{
-    DynValue, NodeInfo, ParamInfo, ParamValue, PoseInfo, Timestamp, TopicInfo, TopicSub,
-};
+use super::params::{ParamInfo, ParamValue};
+use super::types::{DynValue, NodeInfo, PoseInfo, Timestamp, TopicInfo, TopicSub};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Request {

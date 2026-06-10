@@ -23,6 +23,7 @@ those entries into the versioned section when a release is created.
 
 ### Changed
 
+- Split CLI command handling, parameter protocol types, and TUI parameter input handling into focused modules.
 - Centralize talos-agent supported ROS message type subscription wiring in a registry for easier message support additions.
 - Split the agent server implementation into focused UDS, QUIC, request, graph, and control modules without changing the public server API.
 - Cache mdBook tooling in the Docs workflow to reduce CI time.
