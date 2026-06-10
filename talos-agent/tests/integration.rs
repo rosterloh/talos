@@ -11,10 +11,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use talos_common::config::{
-    AgentConfig, SubscriptionConfig, TransportSettings, UdsTransportConfig,
+    AgentConfig, QosProfile, SubscriptionConfig, TransportSettings, UdsTransportConfig,
 };
 use talos_common::protocol::messages::{Request, Response};
-use talos_common::protocol::types::{DynValue, Timestamp};
+use talos_common::protocol::types::{DynValue, ParamValue, Timestamp};
 use talos_common::session::ProtocolClient;
 use talos_common::session::uds::UdsProtocolClient;
 use tempfile::TempDir;
@@ -37,10 +37,12 @@ fn test_config_uds(socket_path: &str) -> Arc<AgentConfig> {
             SubscriptionConfig {
                 topic: "/odom".to_string(),
                 msg_type: "nav_msgs/msg/Odometry".to_string(),
+                qos: QosProfile::Default,
             },
             SubscriptionConfig {
                 topic: "/joint_states".to_string(),
                 msg_type: "sensor_msgs/msg/JointState".to_string(),
+                qos: QosProfile::Default,
             },
         ],
         control: None,
@@ -151,6 +153,174 @@ async fn uds_list_poses_returns_configured_poses() {
     }
 }
 
+/// Without a live ROS 2 graph (graph handle is `None` in these tests), the
+/// parameter handlers must report the node as unavailable rather than hang or
+/// panic. This also exercises the new dispatch arms over a real UDS round-trip.
+#[tokio::test]
+async fn uds_list_parameters_without_graph_returns_error() {
+    let dir = TempDir::new().unwrap();
+    let path = dir
+        .path()
+        .join("listparams.sock")
+        .to_string_lossy()
+        .into_owned();
+
+    let config = test_config_uds(&path);
+    spawn_uds_server(config).await;
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+    let response = client
+        .request(Request::ListParameters {
+            node: "/some_node".to_string(),
+        })
+        .await
+        .unwrap();
+
+    match response {
+        Response::Error(msg) => assert!(
+            msg.contains("not available"),
+            "expected node-unavailable error, got: {msg}"
+        ),
+        other => panic!("unexpected response: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn uds_set_parameter_without_graph_returns_error() {
+    let dir = TempDir::new().unwrap();
+    let path = dir
+        .path()
+        .join("setparam.sock")
+        .to_string_lossy()
+        .into_owned();
+
+    let config = test_config_uds(&path);
+    spawn_uds_server(config).await;
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+    let response = client
+        .request(Request::SetParameter {
+            node: "/some_node".to_string(),
+            name: "rate".to_string(),
+            value: ParamValue::Integer(10),
+        })
+        .await
+        .unwrap();
+
+    match response {
+        Response::Error(msg) => assert!(
+            msg.contains("not available"),
+            "expected node-unavailable error, got: {msg}"
+        ),
+        other => panic!("unexpected response: {other:?}"),
+    }
+}
+
+/// End-to-end parameter round trip against a live ROS 2 node.
+///
+/// Spins a real `rclrs` node (mirroring the bridge node) that declares a
+/// parameter and, by default, hosts the standard `rcl_interfaces` parameter
+/// services. The agent's handlers create service clients on that same node and
+/// drive list/get/set through DDS, exactly as in production.
+#[tokio::test]
+async fn uds_parameter_round_trip_against_live_node() {
+    use rclrs::CreateBasicExecutor;
+
+    const NODE: &str = "/talos_param_live_test";
+
+    // The rclrs context, executor, node, and parameter all live on the spin
+    // thread; the executor blocks in `spin`, so it must not run on the async
+    // runtime. A clone of the node handle is sent back for the graph handle.
+    let (node_tx, node_rx) = std::sync::mpsc::channel::<rclrs::Node>();
+    std::thread::spawn(move || {
+        let context = rclrs::Context::default_from_env().expect("rclrs context");
+        let mut executor = context.create_basic_executor();
+        let node = executor
+            .create_node("talos_param_live_test")
+            .expect("create node");
+        let _rate = node
+            .declare_parameter("rate")
+            .default(10_i64)
+            .mandatory()
+            .expect("declare rate");
+        node_tx.send(Arc::clone(&node)).expect("send node handle");
+        // Keep `_rate` alive for the lifetime of the spin so the parameter
+        // stays declared.
+        executor.spin(rclrs::SpinOptions::default());
+        drop(_rate);
+    });
+    let node = node_rx.recv().expect("receive node handle");
+
+    let dir = TempDir::new().unwrap();
+    let path = dir
+        .path()
+        .join("param_live.sock")
+        .to_string_lossy()
+        .into_owned();
+    let config = test_config_uds(&path);
+
+    let graph: GraphHandle = Arc::new(Mutex::new(Some(node)));
+    tokio::spawn(async move {
+        let _ =
+            talos_agent::server::run(config, make_router(), make_joint_publisher(), graph).await;
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+
+    // List: the declared parameter shows up with its initial value.
+    let response = client
+        .request(Request::ListParameters { node: NODE.into() })
+        .await
+        .unwrap();
+    let listed = match response {
+        Response::Parameters { parameters, .. } => parameters,
+        other => panic!("list: unexpected response: {other:?}"),
+    };
+    let rate = listed
+        .iter()
+        .find(|p| p.name == "rate")
+        .expect("'rate' present in parameter list");
+    assert_eq!(rate.value, ParamValue::Integer(10), "initial value");
+
+    // Set the parameter to a new value.
+    let response = client
+        .request(Request::SetParameter {
+            node: NODE.into(),
+            name: "rate".into(),
+            value: ParamValue::Integer(50),
+        })
+        .await
+        .unwrap();
+    match response {
+        Response::ParameterSet {
+            successful, reason, ..
+        } => assert!(successful, "set rejected: {reason}"),
+        other => panic!("set: unexpected response: {other:?}"),
+    }
+
+    // Get: the new value is reflected back.
+    let response = client
+        .request(Request::GetParameters {
+            node: NODE.into(),
+            names: vec!["rate".into()],
+        })
+        .await
+        .unwrap();
+    match response {
+        Response::Parameters { parameters, .. } => {
+            assert_eq!(parameters.len(), 1);
+            assert_eq!(parameters[0].name, "rate");
+            assert_eq!(
+                parameters[0].value,
+                ParamValue::Integer(50),
+                "value after set"
+            );
+        }
+        other => panic!("get: unexpected response: {other:?}"),
+    }
+}
+
 #[cfg(feature = "quic")]
 #[tokio::test]
 async fn quic_list_poses_returns_configured_poses() {
@@ -238,6 +408,7 @@ async fn quic_client_subscribes_and_receives_data() {
         subscriptions: vec![SubscriptionConfig {
             topic: "/odom".to_string(),
             msg_type: "nav_msgs/msg/Odometry".to_string(),
+            qos: QosProfile::Default,
         }],
         control: None,
         poses: Default::default(),
@@ -316,6 +487,7 @@ async fn dual_mode_agent_serves_uds_and_quic() {
         subscriptions: vec![SubscriptionConfig {
             topic: "/odom".to_string(),
             msg_type: "nav_msgs/msg/Odometry".to_string(),
+            qos: QosProfile::Default,
         }],
         control: None,
         poses: Default::default(),

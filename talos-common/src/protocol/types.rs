@@ -95,3 +95,5 @@ pub struct PoseInfo {
     pub name: String,
     pub positions: Vec<(String, f64)>,
 }
+
+pub use super::params::{ParamInfo, ParamValue};

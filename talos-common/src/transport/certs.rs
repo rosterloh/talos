@@ -6,8 +6,8 @@ use crate::error::Error;
 
 /// Generate a self-signed certificate for use with the QUIC server endpoint.
 /// Returns `(cert_chain, private_key)` ready to pass to `rustls::ServerConfig`.
-pub fn generate_self_signed(
-) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), Error> {
+pub fn generate_self_signed()
+-> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), Error> {
     let rcgen::CertifiedKey { cert, key_pair } =
         rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
             .map_err(|e| Error::Config(format!("rcgen: {e}")))?;

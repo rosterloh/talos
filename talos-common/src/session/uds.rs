@@ -3,8 +3,8 @@
 use std::collections::{HashSet, VecDeque};
 
 use futures_util::{SinkExt, StreamExt};
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
+use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::error::Error;
@@ -48,10 +48,7 @@ impl UdsProtocolClient {
         loop {
             match self.reader.next().await {
                 Some(Ok(Response::TopicData {
-                    topic,
-                    stamp,
-                    data,
-                    ..
+                    topic, stamp, data, ..
                 })) => {
                     if self.subscriptions.contains(&topic) {
                         self.data_queue
@@ -64,7 +61,7 @@ impl UdsProtocolClient {
                     return Err(Error::Io(std::io::Error::new(
                         std::io::ErrorKind::UnexpectedEof,
                         "UDS connection closed",
-                    )))
+                    )));
                 }
             }
         }
@@ -161,10 +158,7 @@ impl ProtocolClient for UdsProtocolClient {
         loop {
             match self.reader.next().await {
                 Some(Ok(Response::TopicData {
-                    topic,
-                    stamp,
-                    data,
-                    ..
+                    topic, stamp, data, ..
                 })) => {
                     if self.subscriptions.contains(&topic) {
                         return Ok((topic, TopicFrame { stamp, data }));
@@ -180,7 +174,7 @@ impl ProtocolClient for UdsProtocolClient {
                     return Err(Error::Io(std::io::Error::new(
                         std::io::ErrorKind::UnexpectedEof,
                         "UDS connection closed",
-                    )))
+                    )));
                 }
             }
         }
@@ -189,17 +183,17 @@ impl ProtocolClient for UdsProtocolClient {
 
 #[cfg(test)]
 mod tests {
-    use tokio::net::UnixListener;
-    use tokio_util::codec::{FramedRead, FramedWrite};
     use futures_util::{SinkExt, StreamExt};
     use tempfile::TempDir;
+    use tokio::net::UnixListener;
+    use tokio_util::codec::{FramedRead, FramedWrite};
 
     use crate::protocol::codec::BincodeCodec;
     use crate::protocol::messages::{Request, Response};
     use crate::protocol::types::{DynValue, Timestamp, TopicInfo, TopicSub};
 
-    use super::UdsProtocolClient;
     use super::ProtocolClient;
+    use super::UdsProtocolClient;
 
     /// Spawn a minimal UDS server that handles one client connection.
     async fn spawn_test_server(socket_path: String) {

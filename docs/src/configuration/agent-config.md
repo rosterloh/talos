@@ -40,7 +40,9 @@ At least one transport must be configured for the agent to serve clients.
 
 ## Topic Subscriptions
 
-The agent subscribes to configured topics with compiled-in ROS 2 message types:
+The agent subscribes to configured topics with compiled-in ROS 2 message types.
+An optional `qos` field selects the QoS profile; when omitted it defaults to
+`"default"` (Reliable, Volatile, KeepLast — depth inherited from rclrs default).
 
 ```toml
 [[subscriptions]]
@@ -62,6 +64,21 @@ type = "sensor_msgs/msg/JointState"
 [[subscriptions]]
 topic = "/rosout"
 type = "rcl_interfaces/msg/Log"
+
+# Sensor topics: use sensor_data QoS (BestEffort, Volatile, KeepLast 5)
+[[subscriptions]]
+topic = "/scan"
+type = "sensor_msgs/msg/LaserScan"
+qos = "sensor_data"
+
+[[subscriptions]]
+topic = "/imu/data"
+type = "sensor_msgs/msg/Imu"
+qos = "sensor_data"
+
+[[subscriptions]]
+topic = "/pose"
+type = "geometry_msgs/msg/PoseStamped"
 ```
 
 Unknown message types are skipped by the agent.

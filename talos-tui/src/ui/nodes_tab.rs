@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
-use ratatui::Frame;
 
 use crate::state::{AppState, Pane};
 
@@ -22,7 +22,11 @@ fn draw_node_list(f: &mut Frame, state: &AppState, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, node)| {
-            let marker = if i == state.node_selected { "▶ " } else { "  " };
+            let marker = if i == state.node_selected {
+                "▶ "
+            } else {
+                "  "
+            };
             let style = if i == state.node_selected {
                 Style::default()
                     .fg(Color::Cyan)

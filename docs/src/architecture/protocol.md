@@ -2,6 +2,11 @@
 
 The Talos protocol is defined in `talos-common`.
 
+The `protocol` module owns schema and framing types: request/response enums,
+topic data types, `DynValue`, stream headers, and the length-prefixed bincode
+codec. The application-facing client API lives in `session`, while socket and
+stream setup lives in `transport`.
+
 Control messages use a four-byte big-endian length prefix followed by a
 bincode-encoded payload. The codec is implemented around Tokio async I/O and is
 used by both UDS and QUIC control paths.
@@ -17,6 +22,9 @@ Clients send `Request` values:
 - `Unsubscribe { topics }`
 - `SetJointPosition { joint, position }`
 - `ExecutePose { name }`
+- `ListParameters { node }`
+- `GetParameters { node, names }`
+- `SetParameter { node, name, value }`
 
 ## Responses
 
@@ -28,6 +36,8 @@ The agent replies with `Response` values:
 - `Subscribed`
 - `Unsubscribed`
 - `TopicData`
+- `Parameters { node, parameters }`
+- `ParameterSet { node, name, successful, reason }`
 - `Ok`
 - `Error`
 

@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Row, Table};
-use ratatui::Frame;
 
 use crate::state::AppState;
 
@@ -95,7 +95,6 @@ fn draw_filter_bar(f: &mut Frame, state: &AppState, area: Rect) {
         },
     ]);
 
-    let bar = Paragraph::new(filter_text)
-        .block(Block::default().borders(Borders::ALL));
+    let bar = Paragraph::new(filter_text).block(Block::default().borders(Borders::ALL));
     f.render_widget(bar, area);
 }

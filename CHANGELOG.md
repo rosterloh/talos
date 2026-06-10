@@ -7,10 +7,44 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Added
+
+- Add a source map and rustdoc notes clarifying `talos-common` protocol,
+  session, transport, config, and URDF ownership boundaries.
+- Add per-topic subscribe and unsubscribe controls in the TUI Topics tab, with subscription choices preserved across reconnects.
+- Document how customized topic subscriptions handle newly discovered topics and retry failed manual toggles after reconnect.
+- Add `sensor_msgs/msg/LaserScan` subscription support with full field conversion (`header`, `angle_min/max/increment`, `time_increment`, `scan_time`, `range_min/max`, `ranges`, `intensities`).
+- Add `sensor_msgs/msg/Imu` subscription support with full field conversion (`header`, `orientation` + covariance, `angular_velocity` + covariance, `linear_acceleration` + covariance).
+- Add `geometry_msgs/msg/PoseStamped` subscription support (`header`, `pose`).
+- Add per-subscription `qos` config field accepting `"default"` (Reliable, Volatile, KeepLast — rclrs default depth) or `"sensor_data"` (BestEffort, Volatile, KeepLast 5). Omitting `qos` preserves existing behavior.
+- View and set ROS 2 parameters on any node via the standard `rcl_interfaces` parameter services. The agent gains `ListParameters`, `GetParameters`, and `SetParameter` protocol requests.
+- CLI commands `list-params`, `get-param`, and `set-param`.
+- A TUI Params tab to browse a node's parameters and edit values in place.
+
 ### Changed
 
+- Split CLI command handling, parameter protocol types, and TUI parameter input handling into focused modules.
+- Centralize talos-agent supported ROS message type subscription wiring in a registry for easier message support additions.
+- Split the agent server implementation into focused UDS, QUIC, request, graph, and control modules without changing the public server API.
 - Cache mdBook tooling in the Docs workflow to reduce CI time.
+- Split TUI app state topic, log, and joint behavior into focused state modules without changing UI behavior.
 - Update the release workflow so feature development targets `dev` and version bumps run when `dev` is promoted to `main`.
+- Keep TUI topic ordering stable while subscription acknowledgements and refreshed topic lists arrive mid-session.
+- Stop reconnect requests from retrying topics that disappeared from the latest agent topic list, and document that those topics drop out of the pane until re-advertised.
+- Treat a fresh `TopicList` as a reconnect catalog rather than proof of active subscriptions, which avoids false subscribed badges before subscribe acknowledgements land.
+- Let `s` toggle the selected topic from either Topics pane and make pending subscription badges easier to distinguish without relying on color.
+- Split TUI input handling from terminal setup so key behavior can be tested independently of the terminal lifecycle.
+
+### Fixed
+
+- Preserve existing parameter types when editing TUI parameter values that look like another type.
+- Return CLI errors for failed `list-params` and `get-param` responses.
+- Show fully-qualified node names in the TUI Params tab so namespaced nodes are distinguishable.
+- Fix clean `pixi run build` of `rclrs_ws` failing on the first Rust package: the parent talos cargo workspace leaked into the nested build via `.cargo/config.toml` `[patch.crates-io]` paths and the root `Cargo.toml` workspace. The build now isolates the ancestor cargo config, and `rclrs_ws` is excluded from the talos workspace.
+- Clear stale TUI topic subscription errors when later topic data confirms a desired subscription is healthy again.
+- Clear stale unsubscribe errors after reconnect when the desired state is already unsubscribed.
+- Ignore stale TUI subscribe or unsubscribe acknowledgements after desired topic intent changes.
+- Roll back optimistic TUI topic toggles if the client command channel has already stopped.
 
 ## [0.1.5] - 2026-04-28
 

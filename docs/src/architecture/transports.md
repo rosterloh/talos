@@ -2,6 +2,12 @@
 
 Talos supports two transports: Unix domain sockets and QUIC.
 
+The `transport` module owns endpoint, listener, connection, and certificate
+plumbing. It does not own the request/response schema, and it is not the normal
+API used by CLI or TUI application code. Client applications use the
+`ProtocolClient` session API, which hides whether the underlying connection is
+UDS or QUIC.
+
 ## Unix Domain Sockets
 
 UDS is the default local transport. It is appropriate when the client and agent

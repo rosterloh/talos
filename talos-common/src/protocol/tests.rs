@@ -1,4 +1,5 @@
 use super::messages::{Request, Response};
+use super::params::{ParamInfo, ParamValue};
 use super::types::{
     DynValue, JointInfo, JointLimits, JointType, NodeInfo, PoseInfo, StreamHeader, Timestamp,
     TopicFrame, TopicInfo, TopicSub,
@@ -274,4 +275,59 @@ fn joint_info_round_trip() {
     let bytes = bincode::serialize(&info).expect("serialize");
     let decoded: JointInfo = bincode::deserialize(&bytes).expect("deserialize");
     assert_eq!(info, decoded);
+}
+
+#[test]
+fn request_list_parameters() {
+    round_trip_request(&Request::ListParameters {
+        node: "/talos_agent".into(),
+    });
+}
+
+#[test]
+fn request_get_parameters() {
+    round_trip_request(&Request::GetParameters {
+        node: "/talos_agent".into(),
+        names: vec!["use_sim_time".into(), "rate".into()],
+    });
+}
+
+#[test]
+fn request_set_parameter() {
+    round_trip_request(&Request::SetParameter {
+        node: "/talos_agent".into(),
+        name: "rate".into(),
+        value: ParamValue::Double(50.0),
+    });
+}
+
+#[test]
+fn response_parameters() {
+    round_trip_response(&Response::Parameters {
+        node: "/talos_agent".into(),
+        parameters: vec![
+            ParamInfo {
+                name: "use_sim_time".into(),
+                value: ParamValue::Bool(false),
+            },
+            ParamInfo {
+                name: "rate".into(),
+                value: ParamValue::Double(50.0),
+            },
+            ParamInfo {
+                name: "frames".into(),
+                value: ParamValue::StringArray(vec!["base".into(), "tool".into()]),
+            },
+        ],
+    });
+}
+
+#[test]
+fn response_parameter_set() {
+    round_trip_response(&Response::ParameterSet {
+        node: "/talos_agent".into(),
+        name: "rate".into(),
+        successful: true,
+        reason: String::new(),
+    });
 }

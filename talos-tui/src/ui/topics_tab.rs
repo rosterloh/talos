@@ -1,10 +1,10 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
-use ratatui::Frame;
 
-use crate::state::{AppState, Pane};
+use crate::state::{AppState, Pane, TopicSubscriptionState};
 use talos_common::protocol::types::DynValue;
 
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
@@ -36,8 +36,17 @@ fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
                     }
                 })
                 .unwrap_or_else(|| "  -  ".to_string());
+            let (subscription_badge, subscription_style) = state
+                .topics
+                .get(name)
+                .map(subscription_badge)
+                .unwrap_or(("[OFF]", Style::default().fg(Color::DarkGray)));
 
-            let marker = if i == state.topic_selected { "▶ " } else { "  " };
+            let marker = if i == state.topic_selected {
+                "▶ "
+            } else {
+                "  "
+            };
             let style = if i == state.topic_selected {
                 Style::default()
                     .fg(Color::Cyan)
@@ -48,6 +57,8 @@ fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
 
             ListItem::new(Line::from(vec![
                 Span::styled(marker, style),
+                Span::styled(subscription_badge, subscription_style),
+                Span::raw(" "),
                 Span::styled(name, style),
                 Span::styled(format!("  {hz_str}"), Style::default().fg(Color::DarkGray)),
             ]))
@@ -96,21 +107,38 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
         };
         let title = format!(" DETAIL: {} ", topic.info.name);
 
-        let mut lines = vec![Line::from(vec![
-            Span::styled(
-                format!("{type_short}{hz_str}"),
-                Style::default().fg(Color::DarkGray),
-            ),
-        ])];
+        let mut lines = vec![Line::from(vec![Span::styled(
+            format!("{type_short}{hz_str}"),
+            Style::default().fg(Color::DarkGray),
+        )])];
+        let (_, subscription_style) = subscription_badge(topic);
+        lines.push(Line::from(vec![
+            Span::styled("Subscription: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(topic.subscription.label(), subscription_style),
+        ]));
+        if let Some(error) = &topic.subscription_error {
+            lines.push(Line::from(vec![
+                Span::styled("Last error: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(error.clone(), Style::default().fg(Color::Red)),
+            ]));
+        }
         lines.push(Line::from(""));
 
         if let Some(ref data) = topic.latest {
             render_dynvalue(data, &mut lines, 0, &topic.info.name, state);
+        } else {
+            lines.push(Line::from(Span::styled(
+                "No data received yet",
+                Style::default().fg(Color::DarkGray),
+            )));
         }
 
         (title, lines)
     } else {
-        (" DETAIL ".to_string(), vec![Line::from("No topic selected")])
+        (
+            " DETAIL ".to_string(),
+            vec![Line::from("No topic selected")],
+        )
     };
 
     let paragraph = Paragraph::new(lines).block(
@@ -132,7 +160,10 @@ fn render_dynvalue(
 ) {
     let pad = "  ".repeat(indent);
     match value {
-        DynValue::Struct { type_name: _, fields } => {
+        DynValue::Struct {
+            type_name: _,
+            fields,
+        } => {
             for (name, val) in fields {
                 let field_path = format!("{path}.{name}");
                 match val {
@@ -145,17 +176,16 @@ fn render_dynvalue(
                         let arrow = if expanded { "▼" } else { "▶" };
                         lines.push(Line::from(vec![
                             Span::raw(format!("{pad}  ")),
-                            Span::styled(
-                                format!("{arrow} "),
-                                Style::default().fg(Color::Yellow),
-                            ),
+                            Span::styled(format!("{arrow} "), Style::default().fg(Color::Yellow)),
                             Span::styled(name.clone(), Style::default().fg(Color::White)),
                         ]));
                         if expanded {
                             render_dynvalue(val, lines, indent + 2, &field_path, state);
                         }
                     }
-                    DynValue::Array(arr) if arr.iter().any(|v| matches!(v, DynValue::Struct { .. })) => {
+                    DynValue::Array(arr)
+                        if arr.iter().any(|v| matches!(v, DynValue::Struct { .. })) =>
+                    {
                         let expanded = state
                             .tree_expanded
                             .get(&field_path)
@@ -164,10 +194,7 @@ fn render_dynvalue(
                         let arrow = if expanded { "▼" } else { "▶" };
                         lines.push(Line::from(vec![
                             Span::raw(format!("{pad}  ")),
-                            Span::styled(
-                                format!("{arrow} "),
-                                Style::default().fg(Color::Yellow),
-                            ),
+                            Span::styled(format!("{arrow} "), Style::default().fg(Color::Yellow)),
                             Span::styled(
                                 format!("{name} [{} items]", arr.len()),
                                 Style::default().fg(Color::White),
@@ -183,14 +210,8 @@ fn render_dynvalue(
                     _ => {
                         lines.push(Line::from(vec![
                             Span::raw(format!("{pad}    ")),
-                            Span::styled(
-                                format!("{name}: "),
-                                Style::default().fg(Color::DarkGray),
-                            ),
-                            Span::styled(
-                                format_value(val),
-                                Style::default().fg(Color::Green),
-                            ),
+                            Span::styled(format!("{name}: "), Style::default().fg(Color::DarkGray)),
+                            Span::styled(format_value(val), Style::default().fg(Color::Green)),
                         ]));
                     }
                 }
@@ -235,5 +256,15 @@ fn format_value(value: &DynValue) -> String {
             }
         }
         DynValue::Struct { type_name, .. } => format!("{{{type_name}}}"),
+    }
+}
+
+fn subscription_badge(topic: &crate::state::TopicData) -> (&'static str, Style) {
+    match topic.subscription {
+        TopicSubscriptionState::Subscribed => ("[ON ]", Style::default().fg(Color::Green)),
+        TopicSubscriptionState::Unsubscribed => ("[OFF]", Style::default().fg(Color::DarkGray)),
+        TopicSubscriptionState::PendingSubscribe => ("[+..]", Style::default().fg(Color::Yellow)),
+        TopicSubscriptionState::PendingUnsubscribe => ("[-..]", Style::default().fg(Color::Yellow)),
+        TopicSubscriptionState::Error => ("[ERR]", Style::default().fg(Color::Red)),
     }
 }

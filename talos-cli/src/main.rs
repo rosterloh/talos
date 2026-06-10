@@ -1,16 +1,21 @@
+mod commands;
+
 use std::process;
 
 use clap::{Parser, Subcommand};
-use talos_common::protocol::messages::{Request, Response};
-use talos_common::protocol::types::DynValue;
-use talos_common::session::uds::UdsProtocolClient;
 use talos_common::session::ProtocolClient;
+use talos_common::session::uds::UdsProtocolClient;
 
 #[derive(Parser)]
 #[command(name = "talos", about = "CLI for the Talos ROS 2 bridge")]
 struct Cli {
     /// Path to the agent Unix socket (mutually exclusive with --remote)
-    #[arg(long, default_value = "/tmp/talos.sock", global = true, conflicts_with = "remote")]
+    #[arg(
+        long,
+        default_value = "/tmp/talos.sock",
+        global = true,
+        conflicts_with = "remote"
+    )]
     socket: String,
 
     /// Remote agent address for QUIC transport, e.g. 192.168.1.50:4433
@@ -35,6 +40,28 @@ enum Command {
         /// Number of messages to print (0 = unlimited)
         #[arg(short, long, default_value_t = 0)]
         count: usize,
+    },
+    /// List a node's parameters with their current values
+    ListParams {
+        /// Fully-qualified node name, e.g. /talos_agent
+        node: String,
+    },
+    /// Get specific parameter values from a node
+    GetParam {
+        /// Fully-qualified node name, e.g. /talos_agent
+        node: String,
+        /// One or more parameter names
+        #[arg(required = true, num_args = 1..)]
+        names: Vec<String>,
+    },
+    /// Set a parameter value on a node (type is inferred from the value)
+    SetParam {
+        /// Fully-qualified node name, e.g. /talos_agent
+        node: String,
+        /// Parameter name
+        name: String,
+        /// New value, e.g. true, 42, 3.14, hello, "[1, 2, 3]"
+        value: String,
     },
 }
 
@@ -69,111 +96,81 @@ async fn run_with_client<C: ProtocolClient>(
     command: Command,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
-        Command::ListTopics => {
-            let response = client.request(Request::ListTopics).await?;
-            match response {
-                Response::TopicList(topics) => {
-                    println!("{:<30} {:<35} {:>4} {:>4}", "TOPIC", "TYPE", "PUB", "SUB");
-                    println!("{}", "-".repeat(75));
-                    for t in &topics {
-                        println!(
-                            "{:<30} {:<35} {:>4} {:>4}",
-                            t.name, t.type_name, t.publisher_count, t.subscriber_count
-                        );
-                    }
-                    println!("\n{} topic(s)", topics.len());
-                }
-                Response::Error(e) => eprintln!("error: {e}"),
-                _ => eprintln!("unexpected response"),
-            }
+        Command::ListTopics => commands::topics::list(&mut client).await?,
+        Command::ListNodes => commands::nodes::list(&mut client).await?,
+        Command::Echo { topic, count } => commands::echo::run(&mut client, topic, count).await?,
+        Command::ListParams { node } => commands::parameters::list(&mut client, node).await?,
+        Command::GetParam { node, names } => {
+            commands::parameters::get(&mut client, node, names).await?
         }
-        Command::ListNodes => {
-            let response = client.request(Request::ListNodes).await?;
-            match response {
-                Response::NodeList(nodes) => {
-                    println!("{:<30} {:<20}", "NODE", "NAMESPACE");
-                    println!("{}", "-".repeat(52));
-                    for n in &nodes {
-                        println!("{:<30} {:<20}", n.name, n.namespace);
-                    }
-                    println!("\n{} node(s)", nodes.len());
-                }
-                Response::Error(e) => eprintln!("error: {e}"),
-                _ => eprintln!("unexpected response"),
-            }
-        }
-        Command::Echo { topic, count } => {
-            // Subscribe to the specific topic before listening
-            match client.subscribe(&[topic.clone()]).await {
-                Ok(subs) if subs.is_empty() => {
-                    eprintln!("warning: agent did not confirm subscription to '{topic}'");
-                    eprintln!("(the agent may not be subscribed to this topic)");
-                }
-                Err(e) => {
-                    return Err(format!("failed to subscribe to '{topic}': {e}").into());
-                }
-                _ => {}
-            }
-
-            let mut received = 0usize;
-            loop {
-                let (recv_topic, frame) = client.recv_data().await?;
-                if recv_topic == topic {
-                    print_dynvalue(&frame.data, 0);
-                    println!("---");
-                    received += 1;
-                    if count > 0 && received >= count {
-                        break;
-                    }
-                }
-            }
-
-            if received == 0 {
-                eprintln!("no data received for topic '{topic}'");
-                eprintln!("(the agent may not be subscribed to this topic)");
-            }
+        Command::SetParam { node, name, value } => {
+            commands::parameters::set(&mut client, node, name, value).await?
         }
     }
 
     Ok(())
 }
 
-fn print_dynvalue(value: &DynValue, indent: usize) {
-    let pad = "  ".repeat(indent);
-    match value {
-        DynValue::Bool(v) => println!("{pad}{v}"),
-        DynValue::I8(v) => println!("{pad}{v}"),
-        DynValue::U8(v) => println!("{pad}{v}"),
-        DynValue::I16(v) => println!("{pad}{v}"),
-        DynValue::U16(v) => println!("{pad}{v}"),
-        DynValue::I32(v) => println!("{pad}{v}"),
-        DynValue::U32(v) => println!("{pad}{v}"),
-        DynValue::I64(v) => println!("{pad}{v}"),
-        DynValue::U64(v) => println!("{pad}{v}"),
-        DynValue::F32(v) => println!("{pad}{v}"),
-        DynValue::F64(v) => println!("{pad}{v}"),
-        DynValue::String(v) => println!("{pad}\"{v}\""),
-        DynValue::Bytes(v) => println!("{pad}[{} bytes]", v.len()),
-        DynValue::Array(arr) => {
-            println!("{pad}[");
-            for item in arr {
-                print_dynvalue(item, indent + 1);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use talos_common::error::Error;
+    use talos_common::protocol::messages::{Request, Response};
+    use talos_common::protocol::types::{TopicFrame, TopicSub};
+
+    struct FakeClient {
+        response: Option<Response>,
+    }
+
+    impl FakeClient {
+        fn with_response(response: Response) -> Self {
+            Self {
+                response: Some(response),
             }
-            println!("{pad}]");
         }
-        DynValue::Struct { type_name, fields } => {
-            println!("{pad}{type_name} {{");
-            for (name, val) in fields {
-                print!("{pad}  {name}: ");
-                match val {
-                    DynValue::Struct { .. } | DynValue::Array(_) => {
-                        println!();
-                        print_dynvalue(val, indent + 2);
-                    }
-                    _ => print_dynvalue(val, 0),
-                }
-            }
-            println!("{pad}}}");
+    }
+
+    impl ProtocolClient for FakeClient {
+        async fn request(&mut self, _req: Request) -> Result<Response, Error> {
+            self.response
+                .take()
+                .ok_or_else(|| Error::Config("no response queued".into()))
         }
+
+        async fn subscribe(&mut self, _topics: &[String]) -> Result<Vec<TopicSub>, Error> {
+            Ok(Vec::new())
+        }
+
+        async fn unsubscribe(&mut self, _topics: &[String]) -> Result<Vec<String>, Error> {
+            Ok(Vec::new())
+        }
+
+        async fn recv_data(&mut self) -> Result<(String, TopicFrame), Error> {
+            Err(Error::Config("no topic data queued".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn list_topics_error_response_returns_error() {
+        let err = run_with_client(
+            FakeClient::with_response(Response::Error("boom".into())),
+            Command::ListTopics,
+        )
+        .await
+        .expect_err("list topics error response should fail");
+
+        assert_eq!(err.to_string(), "boom");
+    }
+
+    #[tokio::test]
+    async fn list_nodes_error_response_returns_error() {
+        let err = run_with_client(
+            FakeClient::with_response(Response::Error("missing graph".into())),
+            Command::ListNodes,
+        )
+        .await
+        .expect_err("list nodes error response should fail");
+
+        assert_eq!(err.to_string(), "missing graph");
     }
 }
