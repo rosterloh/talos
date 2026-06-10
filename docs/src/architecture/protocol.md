@@ -22,6 +22,9 @@ Clients send `Request` values:
 - `Unsubscribe { topics }`
 - `SetJointPosition { joint, position }`
 - `ExecutePose { name }`
+- `ListParameters { node }`
+- `GetParameters { node, names }`
+- `SetParameter { node, name, value }`
 
 ## Responses
 
@@ -33,6 +36,8 @@ The agent replies with `Response` values:
 - `Subscribed`
 - `Unsubscribed`
 - `TopicData`
+- `Parameters { node, parameters }`
+- `ParameterSet { node, name, successful, reason }`
 - `Ok`
 - `Error`
 

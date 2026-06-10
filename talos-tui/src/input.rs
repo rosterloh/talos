@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent};
 use talos_common::protocol::messages::Request;
-use talos_common::protocol::types::DynValue;
+use talos_common::protocol::types::{DynValue, ParamValue};
 use tokio::sync::mpsc;
 
-use crate::state::{AppState, JointFocus, LogLevel, Pane, Tab};
+use crate::state::{AppState, JointFocus, LogLevel, Pane, Tab, node_fqn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppAction {
@@ -33,6 +33,11 @@ pub fn handle_key_event(
         return AppAction::Continue;
     }
 
+    if state.editing_param {
+        handle_param_edit_key(state, cmd_tx, key);
+        return AppAction::Continue;
+    }
+
     match key.code {
         KeyCode::Char('q') => AppAction::Quit,
         KeyCode::Char('?') => {
@@ -53,6 +58,10 @@ pub fn handle_key_event(
         }
         KeyCode::Char('4') => {
             state.active_tab = Tab::Joints;
+            AppAction::Continue
+        }
+        KeyCode::Char('5') => {
+            state.active_tab = Tab::Params;
             AppAction::Continue
         }
         KeyCode::Tab => {
@@ -76,6 +85,10 @@ pub fn handle_key_event(
         }
         KeyCode::Right => {
             handle_right(state);
+            AppAction::Continue
+        }
+        KeyCode::Enter if state.active_tab == Tab::Params => {
+            load_params_for_selected(state, cmd_tx);
             AppAction::Continue
         }
         KeyCode::Enter => {
@@ -114,6 +127,15 @@ pub fn handle_key_event(
             if !state.poses.is_empty() {
                 state.pose_confirming = true;
             }
+            AppAction::Continue
+        }
+        KeyCode::Char('e')
+            if state.active_tab == Tab::Params
+                && state.active_pane == Pane::Right
+                && state.param_selected < state.parameters.len() =>
+        {
+            state.editing_param = true;
+            state.param_input = state.parameters[state.param_selected].value.to_string();
             AppAction::Continue
         }
         _ => AppAction::Continue,
@@ -158,6 +180,25 @@ fn handle_pose_confirmation_key(
         _ => {
             state.pose_confirming = false;
         }
+    }
+}
+
+fn handle_param_edit_key(
+    state: &mut AppState,
+    cmd_tx: &mpsc::UnboundedSender<Request>,
+    key: KeyEvent,
+) {
+    match key.code {
+        KeyCode::Esc => {
+            state.editing_param = false;
+            state.param_input.clear();
+        }
+        KeyCode::Enter => handle_param_input_submit(state, cmd_tx),
+        KeyCode::Backspace => {
+            state.param_input.pop();
+        }
+        KeyCode::Char(c) => state.param_input.push(c),
+        _ => {}
     }
 }
 
@@ -243,6 +284,18 @@ fn handle_up(state: &mut AppState) {
                 }
             }
         },
+        Tab::Params => match state.active_pane {
+            Pane::Left => {
+                if state.param_node_selected > 0 {
+                    state.param_node_selected -= 1;
+                }
+            }
+            Pane::Right => {
+                if state.param_selected > 0 {
+                    state.param_selected -= 1;
+                }
+            }
+        },
     }
 }
 
@@ -274,6 +327,18 @@ fn handle_down(state: &mut AppState) {
             JointFocus::PoseList => {
                 if state.pose_selected + 1 < state.poses.len() {
                     state.pose_selected += 1;
+                }
+            }
+        },
+        Tab::Params => match state.active_pane {
+            Pane::Left => {
+                if state.param_node_selected + 1 < state.nodes.len() {
+                    state.param_node_selected += 1;
+                }
+            }
+            Pane::Right => {
+                if state.param_selected + 1 < state.parameters.len() {
+                    state.param_selected += 1;
                 }
             }
         },
@@ -343,6 +408,42 @@ fn toggle_first_level(value: &DynValue, path: &str, expanded: &mut HashMap<Strin
     }
 }
 
+fn load_params_for_selected(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
+    if state.active_pane != Pane::Left {
+        return;
+    }
+    let Some(node) = state.nodes.get(state.param_node_selected) else {
+        return;
+    };
+    let fqn = node_fqn(node);
+    state.param_node = Some(fqn.clone());
+    state.param_selected = 0;
+    state.param_status = Some(format!("loading parameters for {fqn}..."));
+    let _ = cmd_tx.send(Request::ListParameters { node: fqn });
+}
+
+fn handle_param_input_submit(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
+    let Some(node) = state.param_node.clone() else {
+        state.editing_param = false;
+        return;
+    };
+    let Some(param) = state.parameters.get(state.param_selected) else {
+        state.editing_param = false;
+        return;
+    };
+    let name = param.name.clone();
+    let value = ParamValue::parse_preserving_type(&state.param_input, &param.value);
+    let _ = cmd_tx.send(Request::SetParameter {
+        node: node.clone(),
+        name: name.clone(),
+        value,
+    });
+    let _ = cmd_tx.send(Request::ListParameters { node });
+    state.editing_param = false;
+    state.param_input.clear();
+    state.param_status = Some(format!("setting '{name}'..."));
+}
+
 fn cycle_log_severity_filter(state: &mut AppState) {
     let levels = LogLevel::ALL_LEVELS;
     let idx = levels
@@ -358,7 +459,7 @@ mod tests {
     use crate::state::TopicSubscriptionState;
     use crossterm::event::KeyModifiers;
     use talos_common::protocol::messages::Response;
-    use talos_common::protocol::types::{TopicInfo, TopicSub};
+    use talos_common::protocol::types::{ParamInfo, ParamValue, TopicInfo, TopicSub};
 
     fn topic(name: &str, type_name: &str) -> TopicInfo {
         TopicInfo {
@@ -366,6 +467,39 @@ mod tests {
             type_name: type_name.into(),
             publisher_count: 1,
             subscriber_count: 0,
+        }
+    }
+
+    #[test]
+    fn param_edit_preserves_existing_string_type() {
+        let mut state = AppState::default();
+        state.active_tab = Tab::Params;
+        state.active_pane = Pane::Right;
+        state.param_node = Some("/demo".into());
+        state.parameters = vec![ParamInfo {
+            name: "answer".into(),
+            value: ParamValue::String("42".into()),
+        }];
+        state.editing_param = true;
+        state.param_input = "42".into();
+
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        assert_eq!(
+            handle_key_event(
+                &mut state,
+                &cmd_tx,
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            ),
+            AppAction::Continue
+        );
+
+        match cmd_rx.try_recv().expect("set request") {
+            Request::SetParameter { node, name, value } => {
+                assert_eq!(node, "/demo");
+                assert_eq!(name, "answer");
+                assert_eq!(value, ParamValue::String("42".into()));
+            }
+            other => panic!("unexpected request: {other:?}"),
         }
     }
 

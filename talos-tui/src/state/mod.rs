@@ -1,15 +1,16 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use talos_common::protocol::messages::Response;
-use talos_common::protocol::types::{NodeInfo, PoseInfo};
+use talos_common::protocol::types::{NodeInfo, ParamInfo, PoseInfo};
 
 mod joints;
 mod logs;
+mod params;
 mod topics;
 
 pub use joints::{JointData, JointFocus};
 pub use logs::{LogEntry, LogLevel};
-pub(crate) use topics::PendingTopicSubscriptionToggle;
+pub(crate) use params::{node_fqn, node_label};
 pub use topics::{TopicData, TopicSubscriptionState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,10 +19,11 @@ pub enum Tab {
     Nodes,
     Log,
     Joints,
+    Params,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 4] = [Tab::Topics, Tab::Nodes, Tab::Log, Tab::Joints];
+    pub const ALL: [Tab; 5] = [Tab::Topics, Tab::Nodes, Tab::Log, Tab::Joints, Tab::Params];
 
     pub fn label(&self) -> &'static str {
         match self {
@@ -29,6 +31,7 @@ impl Tab {
             Tab::Nodes => "Nodes",
             Tab::Log => "Log",
             Tab::Joints => "Joints",
+            Tab::Params => "Params",
         }
     }
 
@@ -38,6 +41,7 @@ impl Tab {
             Tab::Nodes => 1,
             Tab::Log => 2,
             Tab::Joints => 3,
+            Tab::Params => 4,
         }
     }
 }
@@ -96,6 +100,15 @@ pub struct AppState {
     pub joint_input: String,
     pub joint_input_error: Option<String>,
     pub pose_confirming: bool,
+
+    // Params tab
+    pub param_node_selected: usize,
+    pub param_node: Option<String>,
+    pub parameters: Vec<ParamInfo>,
+    pub param_selected: usize,
+    pub editing_param: bool,
+    pub param_input: String,
+    pub param_status: Option<String>,
 }
 
 impl Default for AppState {
@@ -129,6 +142,13 @@ impl Default for AppState {
             joint_input: String::new(),
             joint_input_error: None,
             pose_confirming: false,
+            param_node_selected: 0,
+            param_node: None,
+            parameters: Vec::new(),
+            param_selected: 0,
+            editing_param: false,
+            param_input: String::new(),
+            param_status: None,
         }
     }
 }
@@ -149,6 +169,13 @@ impl AppState {
             Response::PoseList(poses) => {
                 self.poses = poses;
             }
+            Response::Parameters { node, parameters } => self.handle_parameters(node, parameters),
+            Response::ParameterSet {
+                name,
+                successful,
+                reason,
+                ..
+            } => self.handle_parameter_set(name, successful, reason),
             Response::Subscribed { topics } => self.handle_subscribed_topics(topics),
             Response::Unsubscribed { topics } => self.handle_unsubscribed_topics(topics),
             Response::Ok(_) => {}
