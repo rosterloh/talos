@@ -21,6 +21,7 @@ those entries into the versioned section when a release is created.
 ### Changed
 
 - Centralize talos-agent supported ROS message type subscription wiring in a registry for easier message support additions.
+- Split the agent server implementation into focused UDS, QUIC, request, graph, and control modules without changing the public server API.
 - Cache mdBook tooling in the Docs workflow to reduce CI time.
 - Split TUI app state topic, log, and joint behavior into focused state modules without changing UI behavior.
 - Update the release workflow so feature development targets `dev` and version bumps run when `dev` is promoted to `main`.
