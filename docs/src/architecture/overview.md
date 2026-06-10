@@ -9,7 +9,7 @@ flowchart LR
         TUI["talos-tui"]
     end
 
-    Common["talos-common<br/>protocol, config, transports"]
+    Common["talos-common<br/>protocol, session, transport, config, URDF"]
 
     subgraph Runtime["Robot runtime"]
         Agent["talos-agent"]
@@ -22,9 +22,9 @@ flowchart LR
     Agent -->|"links to"| ROS
 ```
 
-`talos-common` is the shared base. It defines the protocol types, bincode
-framing, client session trait, transport setup, configuration model, and URDF
-parsing. It has no ROS 2 dependency.
+`talos-common` is the shared base. It defines protocol schema and framing,
+the application-facing client session trait, transport endpoint setup,
+configuration data, and URDF parsing helpers. It has no ROS 2 dependency.
 
 `talos-agent` is the only crate that links to ROS 2. It creates the ROS 2 node,
 subscribes to configured topics, converts ROS 2 messages into `DynValue`, and
@@ -46,9 +46,12 @@ protocol and a reachable agent.
 The agent owns ROS 2 message typing and conversion. Clients receive generic
 Talos protocol data and do not need ROS 2 message definitions.
 
-The protocol layer hides transport differences from the CLI and TUI. UDS uses a
-single framed connection. QUIC uses a bidirectional control stream plus
-server-initiated unidirectional data streams.
+The `session` layer hides transport differences from the CLI and TUI through
+`ProtocolClient`. UDS uses a single framed connection. QUIC uses a
+bidirectional control stream plus server-initiated unidirectional data streams.
+
+For a task-oriented guide to which source files own each change, see
+[Source Map](source-map.md).
 
 The terminal UI is a client of the protocol, not a special case inside the
 agent. It reconnects, lists topics, subscribes, and renders the latest data it

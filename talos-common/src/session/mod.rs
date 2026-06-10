@@ -1,8 +1,15 @@
-//! Protocol session layer — transport-agnostic client interface.
+//! Application-facing protocol session layer.
 #![allow(async_fn_in_trait)]
 //!
-//! Application code should use the [`ProtocolClient`] trait rather than directly
-//! touching the transport. Concrete implementations:
+//! This module owns the client API used by `talos-cli` and `talos-tui`.
+//! Application code should use the [`ProtocolClient`] trait rather than opening
+//! sockets, streams, or listeners from [`crate::transport`] directly.
+//!
+//! The session layer translates application requests into framed protocol
+//! exchanges, buffers topic data that arrives while a control response is
+//! pending, and hides UDS versus QUIC stream layout from callers.
+//!
+//! Concrete implementations:
 //! - [`UdsProtocolClient`]: single framed UDS connection
 //! - [`QuicProtocolClient`] (feature `quic`): QUIC bidirectional control stream +
 //!   server-initiated unidirectional data streams

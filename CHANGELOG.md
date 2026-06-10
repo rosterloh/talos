@@ -9,6 +9,8 @@ those entries into the versioned section when a release is created.
 
 ### Added
 
+- Add a source map and rustdoc notes clarifying `talos-common` protocol,
+  session, transport, config, and URDF ownership boundaries.
 - Add per-topic subscribe and unsubscribe controls in the TUI Topics tab, with subscription choices preserved across reconnects.
 - Document how customized topic subscriptions handle newly discovered topics and retry failed manual toggles after reconnect.
 - Add `sensor_msgs/msg/LaserScan` subscription support with full field conversion (`header`, `angle_min/max/increment`, `time_increment`, `scan_time`, `range_min/max`, `ranges`, `intensities`).
