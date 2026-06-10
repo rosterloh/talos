@@ -6,6 +6,9 @@ members = [
     "talos-agent",
     "talos-tui",
 ]
+# rclrs_ws is a nested colcon/cargo workspace built via pixi; keep its crates
+# out of this workspace so cargo doesn't try to adopt them.
+exclude = ["rclrs_ws"]
 
 [workspace.package]
 version = "0.1.5"

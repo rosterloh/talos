@@ -14,14 +14,15 @@ talos-tui --remote 192.168.1.50:4433
 
 ## Views
 
-The TUI has four tabs:
+The TUI has five tabs:
 
 - Topics
 - Nodes
 - Log
 - Joints
+- Params
 
-Use number keys `1` through `4` to switch tabs. `Tab` switches focus between
+Use number keys `1` through `5` to switch tabs. `Tab` switches focus between
 panes. `q` quits.
 
 ## Connection Behavior
@@ -66,3 +67,14 @@ The Joints tab combines URDF joint definitions with live `/joint_states` data.
 It can display limits, current position, velocity, effort, and configured poses.
 When control is configured, it can send joint position and pose commands to the
 agent.
+
+## Params
+
+The Params tab lists the nodes discovered in the graph in the left pane. Select
+a node and press `Enter` to load its parameters into the right pane, where each
+parameter is shown with its current value and type.
+
+Switch focus to the parameter list with `Tab`, select a parameter, and press
+`e` to edit it. Type the new value and press `Enter` to apply it (the value type
+is inferred the same way as the CLI `set-param` command); `Esc` cancels. After a
+successful set the list refreshes so the new value is shown.

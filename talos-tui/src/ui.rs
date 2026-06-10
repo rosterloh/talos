@@ -2,6 +2,7 @@ mod help;
 mod joints_tab;
 mod log_tab;
 mod nodes_tab;
+mod params_tab;
 mod topics_tab;
 
 use ratatui::Frame;
@@ -29,6 +30,7 @@ pub fn draw(f: &mut Frame, state: &AppState) {
         Tab::Nodes => nodes_tab::draw(f, state, chunks[1]),
         Tab::Log => log_tab::draw(f, state, chunks[1]),
         Tab::Joints => joints_tab::draw(f, state, chunks[1]),
+        Tab::Params => params_tab::draw(f, state, chunks[1]),
     }
 
     draw_status_bar(f, state, chunks[2]);
@@ -99,6 +101,7 @@ fn draw_status_bar(f: &mut Frame, state: &AppState, area: Rect) {
         Tab::Nodes => "↑↓ navigate  Enter select  Tab pane  q quit  ? help",
         Tab::Log => "↑↓ scroll  f filter severity  n filter node  / search  q quit  ? help",
         Tab::Joints => "↑↓ navigate  ←→ adjust  Enter edit  p execute pose  q quit  ? help",
+        Tab::Params => "↑↓ navigate  Tab pane  Enter load  e edit value  q quit  ? help",
     };
 
     let bar = Paragraph::new(Line::from(vec![

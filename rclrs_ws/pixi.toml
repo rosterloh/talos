@@ -9,7 +9,7 @@ version = "0.1.0"
 scripts = ["install/setup.sh"]
 
 [tasks]
-build = "colcon build"
+build = "bash scripts/colcon-build.sh"
 clean = "rm -rf build/ install/ log/ .cargo/"
 
 [dependencies]
@@ -24,7 +24,6 @@ cmake = ">=4.2.2,<5"
 compilers = ">=1.11.0,<2"
 ninja = ">=1.13.2,<2"
 pkg-config = ">=0.29.2,<0.30"
-libcurl = ">=8.18.0,<9"
 filelock = ">=3.20.3,<4"
 
 [pypi-dependencies]

@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use talos_common::protocol::messages::Response;
-use talos_common::protocol::types::{DynValue, Timestamp};
+use talos_common::protocol::types::{DynValue, ParamValue, Timestamp};
 use tokio::sync::mpsc;
 
 pub type TopicSender = mpsc::UnboundedSender<Response>;
@@ -532,4 +532,81 @@ pub fn log_to_dynvalue(msg: &rcl_interfaces::msg::Log) -> DynValue {
             ("line".into(), DynValue::U32(msg.line)),
         ],
     }
+}
+
+// --- ROS 2 parameter value conversion ---
+//
+// Tags mirror `rcl_interfaces/msg/ParameterType`. We match on the raw `u8`
+// rather than the generated constants so the mapping is explicit and stable.
+const PARAMETER_NOT_SET: u8 = 0;
+const PARAMETER_BOOL: u8 = 1;
+const PARAMETER_INTEGER: u8 = 2;
+const PARAMETER_DOUBLE: u8 = 3;
+const PARAMETER_STRING: u8 = 4;
+const PARAMETER_BYTE_ARRAY: u8 = 5;
+const PARAMETER_BOOL_ARRAY: u8 = 6;
+const PARAMETER_INTEGER_ARRAY: u8 = 7;
+const PARAMETER_DOUBLE_ARRAY: u8 = 8;
+const PARAMETER_STRING_ARRAY: u8 = 9;
+
+/// Convert a ROS 2 `ParameterValue` into the transport-agnostic [`ParamValue`].
+pub fn param_value_from_ros(v: &rcl_interfaces::msg::ParameterValue) -> ParamValue {
+    match v.type_ {
+        PARAMETER_BOOL => ParamValue::Bool(v.bool_value),
+        PARAMETER_INTEGER => ParamValue::Integer(v.integer_value),
+        PARAMETER_DOUBLE => ParamValue::Double(v.double_value),
+        PARAMETER_STRING => ParamValue::String(v.string_value.clone()),
+        PARAMETER_BYTE_ARRAY => ParamValue::ByteArray(v.byte_array_value.clone()),
+        PARAMETER_BOOL_ARRAY => ParamValue::BoolArray(v.bool_array_value.clone()),
+        PARAMETER_INTEGER_ARRAY => ParamValue::IntegerArray(v.integer_array_value.clone()),
+        PARAMETER_DOUBLE_ARRAY => ParamValue::DoubleArray(v.double_array_value.clone()),
+        PARAMETER_STRING_ARRAY => ParamValue::StringArray(v.string_array_value.clone()),
+        _ => ParamValue::NotSet,
+    }
+}
+
+/// Convert a [`ParamValue`] into a ROS 2 `ParameterValue` with the matching
+/// `type` tag and populated field.
+pub fn param_value_to_ros(v: &ParamValue) -> rcl_interfaces::msg::ParameterValue {
+    let mut out = rcl_interfaces::msg::ParameterValue::default();
+    match v {
+        ParamValue::NotSet => out.type_ = PARAMETER_NOT_SET,
+        ParamValue::Bool(b) => {
+            out.type_ = PARAMETER_BOOL;
+            out.bool_value = *b;
+        }
+        ParamValue::Integer(i) => {
+            out.type_ = PARAMETER_INTEGER;
+            out.integer_value = *i;
+        }
+        ParamValue::Double(d) => {
+            out.type_ = PARAMETER_DOUBLE;
+            out.double_value = *d;
+        }
+        ParamValue::String(s) => {
+            out.type_ = PARAMETER_STRING;
+            out.string_value = s.clone();
+        }
+        ParamValue::ByteArray(a) => {
+            out.type_ = PARAMETER_BYTE_ARRAY;
+            out.byte_array_value = a.clone();
+        }
+        ParamValue::BoolArray(a) => {
+            out.type_ = PARAMETER_BOOL_ARRAY;
+            out.bool_array_value = a.clone();
+        }
+        ParamValue::IntegerArray(a) => {
+            out.type_ = PARAMETER_INTEGER_ARRAY;
+            out.integer_array_value = a.clone();
+        }
+        ParamValue::DoubleArray(a) => {
+            out.type_ = PARAMETER_DOUBLE_ARRAY;
+            out.double_array_value = a.clone();
+        }
+        ParamValue::StringArray(a) => {
+            out.type_ = PARAMETER_STRING_ARRAY;
+            out.string_array_value = a.clone();
+        }
+    }
+    out
 }

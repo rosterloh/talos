@@ -17,7 +17,7 @@ pub fn draw(f: &mut Frame, area: Rect) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  1-4      ", Style::default().fg(Color::Yellow)),
+            Span::styled("  1-5      ", Style::default().fg(Color::Yellow)),
             Span::raw("Switch tab"),
         ]),
         Line::from(vec![
@@ -76,6 +76,21 @@ pub fn draw(f: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  o        ", Style::default().fg(Color::Yellow)),
             Span::raw("Switch to pose list"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Params Tab",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  Enter    ", Style::default().fg(Color::Yellow)),
+            Span::raw("Load parameters for selected node"),
+        ]),
+        Line::from(vec![
+            Span::styled("  e        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Edit selected parameter (right pane)"),
         ]),
         Line::from(""),
         Line::from(vec![

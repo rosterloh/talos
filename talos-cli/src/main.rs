@@ -2,7 +2,7 @@ use std::process;
 
 use clap::{Parser, Subcommand};
 use talos_common::protocol::messages::{Request, Response};
-use talos_common::protocol::types::DynValue;
+use talos_common::protocol::types::{DynValue, ParamValue};
 use talos_common::session::ProtocolClient;
 use talos_common::session::uds::UdsProtocolClient;
 
@@ -40,6 +40,28 @@ enum Command {
         /// Number of messages to print (0 = unlimited)
         #[arg(short, long, default_value_t = 0)]
         count: usize,
+    },
+    /// List a node's parameters with their current values
+    ListParams {
+        /// Fully-qualified node name, e.g. /talos_agent
+        node: String,
+    },
+    /// Get specific parameter values from a node
+    GetParam {
+        /// Fully-qualified node name, e.g. /talos_agent
+        node: String,
+        /// One or more parameter names
+        #[arg(required = true, num_args = 1..)]
+        names: Vec<String>,
+    },
+    /// Set a parameter value on a node (type is inferred from the value)
+    SetParam {
+        /// Fully-qualified node name, e.g. /talos_agent
+        node: String,
+        /// Parameter name
+        name: String,
+        /// New value, e.g. true, 42, 3.14, hello, "[1, 2, 3]"
+        value: String,
     },
 }
 
@@ -138,9 +160,81 @@ async fn run_with_client<C: ProtocolClient>(
                 eprintln!("(the agent may not be subscribed to this topic)");
             }
         }
+        Command::ListParams { node } => {
+            let response = client
+                .request(Request::ListParameters { node: node.clone() })
+                .await?;
+            handle_list_params_response(response)?;
+        }
+        Command::GetParam { node, names } => {
+            let response = client
+                .request(Request::GetParameters {
+                    node: node.clone(),
+                    names: names.clone(),
+                })
+                .await?;
+            handle_get_param_response(response)?;
+        }
+        Command::SetParam { node, name, value } => {
+            let parsed = ParamValue::parse(&value);
+            let response = client
+                .request(Request::SetParameter {
+                    node: node.clone(),
+                    name: name.clone(),
+                    value: parsed,
+                })
+                .await?;
+            match response {
+                Response::ParameterSet {
+                    node,
+                    name,
+                    successful: true,
+                    ..
+                } => println!("set {node} {name}"),
+                Response::ParameterSet {
+                    name,
+                    successful: false,
+                    reason,
+                    ..
+                } => {
+                    return Err(format!("failed to set '{name}': {reason}").into());
+                }
+                Response::Error(e) => return Err(e.into()),
+                _ => return Err("unexpected response".into()),
+            }
+        }
     }
 
     Ok(())
+}
+
+fn handle_list_params_response(response: Response) -> Result<(), Box<dyn std::error::Error>> {
+    match response {
+        Response::Parameters { node, parameters } => {
+            println!("{:<40} {:<14} VALUE", "PARAMETER", "TYPE");
+            println!("{}", "-".repeat(80));
+            for p in &parameters {
+                println!("{:<40} {:<14} {}", p.name, p.value.type_name(), p.value);
+            }
+            println!("\n{} parameter(s) on {node}", parameters.len());
+            Ok(())
+        }
+        Response::Error(e) => Err(e.into()),
+        _ => Err("unexpected response".into()),
+    }
+}
+
+fn handle_get_param_response(response: Response) -> Result<(), Box<dyn std::error::Error>> {
+    match response {
+        Response::Parameters { parameters, .. } => {
+            for p in &parameters {
+                println!("{}: {} ({})", p.name, p.value, p.value.type_name());
+            }
+            Ok(())
+        }
+        Response::Error(e) => Err(e.into()),
+        _ => Err("unexpected response".into()),
+    }
 }
 
 fn print_dynvalue(value: &DynValue, indent: usize) {
@@ -180,5 +274,24 @@ fn print_dynvalue(value: &DynValue, indent: usize) {
             }
             println!("{pad}}}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_params_error_response_returns_error() {
+        let err = handle_list_params_response(Response::Error("boom".into()))
+            .expect_err("list params error response should fail");
+        assert_eq!(err.to_string(), "boom");
+    }
+
+    #[test]
+    fn get_param_error_response_returns_error() {
+        let err = handle_get_param_response(Response::Error("missing".into()))
+            .expect_err("get param error response should fail");
+        assert_eq!(err.to_string(), "missing");
     }
 }

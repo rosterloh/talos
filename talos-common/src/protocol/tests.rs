@@ -1,7 +1,7 @@
 use super::messages::{Request, Response};
 use super::types::{
-    DynValue, JointInfo, JointLimits, JointType, NodeInfo, PoseInfo, StreamHeader, Timestamp,
-    TopicFrame, TopicInfo, TopicSub,
+    DynValue, JointInfo, JointLimits, JointType, NodeInfo, ParamInfo, ParamValue, PoseInfo,
+    StreamHeader, Timestamp, TopicFrame, TopicInfo, TopicSub,
 };
 
 fn round_trip_request(req: &Request) {
@@ -274,4 +274,171 @@ fn joint_info_round_trip() {
     let bytes = bincode::serialize(&info).expect("serialize");
     let decoded: JointInfo = bincode::deserialize(&bytes).expect("deserialize");
     assert_eq!(info, decoded);
+}
+
+#[test]
+fn request_list_parameters() {
+    round_trip_request(&Request::ListParameters {
+        node: "/talos_agent".into(),
+    });
+}
+
+#[test]
+fn request_get_parameters() {
+    round_trip_request(&Request::GetParameters {
+        node: "/talos_agent".into(),
+        names: vec!["use_sim_time".into(), "rate".into()],
+    });
+}
+
+#[test]
+fn request_set_parameter() {
+    round_trip_request(&Request::SetParameter {
+        node: "/talos_agent".into(),
+        name: "rate".into(),
+        value: ParamValue::Double(50.0),
+    });
+}
+
+#[test]
+fn response_parameters() {
+    round_trip_response(&Response::Parameters {
+        node: "/talos_agent".into(),
+        parameters: vec![
+            ParamInfo {
+                name: "use_sim_time".into(),
+                value: ParamValue::Bool(false),
+            },
+            ParamInfo {
+                name: "rate".into(),
+                value: ParamValue::Double(50.0),
+            },
+            ParamInfo {
+                name: "frames".into(),
+                value: ParamValue::StringArray(vec!["base".into(), "tool".into()]),
+            },
+        ],
+    });
+}
+
+#[test]
+fn response_parameter_set() {
+    round_trip_response(&Response::ParameterSet {
+        node: "/talos_agent".into(),
+        name: "rate".into(),
+        successful: true,
+        reason: String::new(),
+    });
+}
+
+#[test]
+fn param_value_all_variants_round_trip() {
+    for value in [
+        ParamValue::NotSet,
+        ParamValue::Bool(true),
+        ParamValue::Integer(-42),
+        ParamValue::Double(3.5),
+        ParamValue::String("hello".into()),
+        ParamValue::ByteArray(vec![1, 2, 3]),
+        ParamValue::BoolArray(vec![true, false]),
+        ParamValue::IntegerArray(vec![1, 2, 3]),
+        ParamValue::DoubleArray(vec![1.0, 2.5]),
+        ParamValue::StringArray(vec!["a".into(), "b".into()]),
+    ] {
+        let info = ParamInfo {
+            name: "p".into(),
+            value,
+        };
+        let bytes = bincode::serialize(&info).expect("serialize param");
+        let decoded: ParamInfo = bincode::deserialize(&bytes).expect("deserialize param");
+        assert_eq!(info, decoded);
+    }
+}
+
+#[test]
+fn param_value_parse_infers_scalar_types() {
+    assert_eq!(ParamValue::parse("true"), ParamValue::Bool(true));
+    assert_eq!(ParamValue::parse("False"), ParamValue::Bool(false));
+    assert_eq!(ParamValue::parse("42"), ParamValue::Integer(42));
+    assert_eq!(ParamValue::parse("-7"), ParamValue::Integer(-7));
+    assert_eq!(ParamValue::parse("3.14"), ParamValue::Double(3.14));
+    assert_eq!(ParamValue::parse("1.0"), ParamValue::Double(1.0));
+    assert_eq!(
+        ParamValue::parse("hello"),
+        ParamValue::String("hello".into())
+    );
+    // Quoted digits stay a string rather than becoming a number.
+    assert_eq!(
+        ParamValue::parse("\"123\""),
+        ParamValue::String("123".into())
+    );
+}
+
+#[test]
+fn param_value_parse_infers_arrays() {
+    assert_eq!(
+        ParamValue::parse("[1, 2, 3]"),
+        ParamValue::IntegerArray(vec![1, 2, 3])
+    );
+    assert_eq!(
+        ParamValue::parse("[1.5, 2.0]"),
+        ParamValue::DoubleArray(vec![1.5, 2.0])
+    );
+    assert_eq!(
+        ParamValue::parse("[true, false]"),
+        ParamValue::BoolArray(vec![true, false])
+    );
+    assert_eq!(
+        ParamValue::parse("[a, b]"),
+        ParamValue::StringArray(vec!["a".into(), "b".into()])
+    );
+    assert_eq!(ParamValue::parse("[]"), ParamValue::StringArray(vec![]));
+}
+
+#[test]
+fn param_value_parse_preserving_type_keeps_existing_string_scalars() {
+    assert_eq!(
+        ParamValue::parse_preserving_type("42", &ParamValue::String("old".into())),
+        ParamValue::String("42".into())
+    );
+    assert_eq!(
+        ParamValue::parse_preserving_type("false", &ParamValue::String("old".into())),
+        ParamValue::String("false".into())
+    );
+    assert_eq!(
+        ParamValue::parse_preserving_type("[1, 2]", &ParamValue::String("old".into())),
+        ParamValue::String("[1, 2]".into())
+    );
+}
+
+#[test]
+fn param_value_parse_preserving_type_keeps_unchanged_display_only_values() {
+    let bytes = ParamValue::ByteArray(vec![1, 2, 3]);
+    assert_eq!(
+        ParamValue::parse_preserving_type(&bytes.to_string(), &bytes),
+        bytes
+    );
+
+    let strings = ParamValue::StringArray(vec!["a,b".into()]);
+    assert_eq!(
+        ParamValue::parse_preserving_type(&strings.to_string(), &strings),
+        strings
+    );
+}
+
+#[test]
+fn param_value_display_round_trips_through_parse() {
+    for value in [
+        ParamValue::Bool(true),
+        ParamValue::Integer(42),
+        ParamValue::Double(1.0),
+        ParamValue::Double(3.14),
+        ParamValue::String("hello".into()),
+        ParamValue::IntegerArray(vec![1, 2, 3]),
+        ParamValue::DoubleArray(vec![1.0, 2.5]),
+        ParamValue::BoolArray(vec![true, false]),
+    ] {
+        let shown = value.to_string();
+        assert_eq!(ParamValue::parse(&shown), value, "round trip via '{shown}'");
+    }
 }

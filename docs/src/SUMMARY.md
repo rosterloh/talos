@@ -27,6 +27,7 @@
 - [Node Introspection](features/node-introspection.md)
 - [Logs](features/logs.md)
 - [Joint Control](features/joint-control.md)
+- [Parameters](features/parameters.md)
 
 # Design History
 
