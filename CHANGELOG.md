@@ -7,6 +7,11 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Added
+
+- Add a Coverage workflow that publishes LCOV artifacts for non-ROS crates and
+  fails pull requests when line coverage drops against the base branch.
+
 ## [0.2.0] - 2026-06-10
 
 ### Added

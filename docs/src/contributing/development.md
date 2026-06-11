@@ -41,6 +41,31 @@ cargo test -p talos-agent --test integration
 cargo test -p talos-agent --test integration --features quic
 ```
 
+## Coverage
+
+The Coverage workflow reports LCOV output for the non-ROS crates
+(`talos-common`, `talos-cli`, and `talos-tui`) with the `quic` feature enabled.
+Pull requests compare that coverage against the base branch and fail if line
+coverage decreases.
+
+Install `cargo-llvm-cov` before running the local coverage command:
+
+```bash
+cargo install cargo-llvm-cov --locked
+
+cargo llvm-cov -p talos-common -p talos-cli -p talos-tui \
+  --features quic \
+  --lcov \
+  --output-path coverage/lcov.info
+
+python3 .github/scripts/coverage_report.py summarize coverage/lcov.info
+```
+
+On machines without `rclrs_ws/install`, temporarily remove `talos-agent` from
+the workspace members and move `.cargo/config.toml` aside before running non-ROS
+coverage; the CI workflow does this because these packages do not need the ROS
+patch paths.
+
 ## Rustdoc
 
 Rustdoc is API reference and stays separate from this book:
