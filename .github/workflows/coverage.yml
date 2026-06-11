@@ -1,0 +1,97 @@
+name: Coverage
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-coverage:
+    name: Rust coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Prepare non-ROS workspace
+        run: python3 .github/scripts/prepare_non_ros_workspace.py
+
+      - name: Test coverage helper
+        run: |
+          python3 .github/scripts/test_coverage_report.py
+          python3 .github/scripts/test_prepare_non_ros_workspace.py
+
+      - name: Generate current coverage
+        run: |
+          set -euo pipefail
+          mkdir -p coverage
+          cargo llvm-cov \
+            -p talos-common \
+            -p talos-cli \
+            -p talos-tui \
+            --features quic \
+            --lcov \
+            --output-path coverage/lcov.info
+
+      - name: Summarize current coverage
+        run: |
+          python3 .github/scripts/coverage_report.py summarize \
+            coverage/lcov.info \
+            --markdown coverage/summary.md
+
+      - name: Generate base coverage
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git worktree add ../talos-base "${{ github.event.pull_request.base.sha }}"
+          (
+            cd ../talos-base
+            python3 "${GITHUB_WORKSPACE}/.github/scripts/prepare_non_ros_workspace.py" \
+              --root .
+            cargo llvm-cov \
+              -p talos-common \
+              -p talos-cli \
+              -p talos-tui \
+              --features quic \
+              --lcov \
+              --output-path "${GITHUB_WORKSPACE}/coverage/base-lcov.info"
+          )
+
+      - name: Check coverage regression
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 .github/scripts/coverage_report.py compare \
+            coverage/base-lcov.info \
+            coverage/lcov.info \
+            --markdown coverage/comparison.md
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: coverage/
+          if-no-files-found: error
