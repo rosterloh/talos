@@ -1,0 +1,54 @@
+# Talos-pinned source dependencies for the ros2_rust (kilted) workspace.
+#
+# Use this file instead of the upstream src/ros2_rust/ros2_rust_kilted.repos,
+# which pins the ros2/* interface repos to the moving `kilted` branch. Building
+# a source revision newer than the robostack-kilted conda underlay (pixi env)
+# produces introspection libraries that reference symbols the underlay's
+# generator libraries do not export, which fails at dlopen (e.g. the agent's
+# DynamicMessage fallback). The ros2/* tags below match the versions robostack
+# ships; scripts/colcon-build.sh enforces source == underlay at build time.
+#
+# Rule when bumping: a pinned tag must equal $CONDA_PREFIX/share/<pkg>/package.xml
+# <version> for that package in the pixi env. Repos not provided by robostack
+# (test_interface_files, ros2-rust/*) are pinned to commit SHAs for reproducibility.
+repositories:
+  ros2/common_interfaces:
+    type: git
+    url: https://github.com/ros2/common_interfaces.git
+    version: 5.5.1
+  ros2/example_interfaces:
+    type: git
+    url: https://github.com/ros2/example_interfaces.git
+    version: 0.13.1
+  ros2/rcl_interfaces:
+    type: git
+    url: https://github.com/ros2/rcl_interfaces.git
+    version: 2.3.0
+  ros2/test_interface_files:
+    type: git
+    url: https://github.com/ros2/test_interface_files.git
+    version: aa4641c8d791a89872d95d9202132526f13ef110
+  ros2/rosidl_core:
+    type: git
+    url: https://github.com/ros2/rosidl_core.git
+    version: 0.3.1
+  ros2/rosidl_defaults:
+    type: git
+    url: https://github.com/ros2/rosidl_defaults.git
+    version: 1.7.1
+  ros2/unique_identifier_msgs:
+    type: git
+    url: https://github.com/ros2/unique_identifier_msgs.git
+    version: 2.7.0
+  ros2-rust/examples:
+    type: git
+    url: https://github.com/ros2-rust/examples.git
+    version: 35e062c8fed455723273ba68071fca3f744e068b
+  ros2-rust/rosidl_rust:
+    type: git
+    url: https://github.com/ros2-rust/rosidl_rust.git
+    version: 74b43aa1f8534fd66173e1e112f0def42b40b93f
+  ros2-rust/rosidl_runtime_rs:
+    type: git
+    url: https://github.com/ros2-rust/rosidl_runtime_rs.git
+    version: 1f32510afac5ea3a13067a692e2a6d002fff10a0

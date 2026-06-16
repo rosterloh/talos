@@ -32,10 +32,15 @@ mkdir src
 git clone -b v0.7.0 https://github.com/ros2-rust/ros2_rust.git src/ros2_rust
 ```
 
-Once cloned, import the required repos for ros2_rust:
+Once cloned, import the required repos for ros2_rust. Use the tracked
+`deps.kilted.repos` rather than `src/ros2_rust/ros2_rust_kilted.repos`: the
+upstream file pins the interface repos to the moving `kilted` branch, which
+drifts ahead of the robostack-kilted conda underlay and breaks runtime
+introspection (`dlopen`) loading. `deps.kilted.repos` pins each package to the
+version robostack ships, and `scripts/colcon-build.sh` enforces that match.
 
 ```bash
-vcs import src < src/ros2_rust/ros2_rust_kilted.repos
+vcs import src < deps.kilted.repos
 # Don't build examples
 touch src/ros2-rust/examples/COLCON_IGNORE
 ```
