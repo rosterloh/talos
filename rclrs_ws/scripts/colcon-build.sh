@@ -17,6 +17,11 @@ ws="$(cd "$(dirname "$0")/.." && pwd)"
 # which fails at dlopen (e.g. the DynamicMessage fallback). Fail loudly here
 # instead. The .repos file pins each source package to the underlay's version;
 # this catches drift if that pin is bypassed or the underlay is bumped.
+#
+# Scoped to src/ros2 — the robostack-versioned interface/message repos. The
+# ros2-rust tooling (src/ros2-rust, src/ros2_rust) is intentionally pinned to
+# upstream commits, not robostack versions, and ships no typesupport libraries,
+# so it is exempt even when robostack happens to also package it.
 if [ -n "${CONDA_PREFIX:-}" ]; then
   skew=0
   while IFS= read -r pxml; do
@@ -29,7 +34,7 @@ if [ -n "${CONDA_PREFIX:-}" ]; then
       echo "VERSION SKEW: $name source=$sver underlay=$uver" >&2
       skew=1
     fi
-  done < <(find "$ws/src" -name package.xml)
+  done < <(find "$ws/src/ros2" -name package.xml)
   if [ "$skew" -ne 0 ]; then
     echo "Source packages disagree with the conda underlay; pin them in the" >&2
     echo "matching *.repos file (version = underlay package.xml <version>)." >&2
