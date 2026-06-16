@@ -289,3 +289,71 @@ pub fn log_dynamic_fallback(topic: &str, type_name: &str) {
         "no static converter; using runtime dynamic-message subscription"
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rclrs::DynamicMessage;
+
+    fn field<'a>(fields: &'a [(String, DynValue)], name: &str) -> &'a DynValue {
+        &fields
+            .iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("missing field {name}"))
+            .1
+    }
+
+    /// Build a populated `PointCloud2`, round-trip it through `DynamicMessage`,
+    /// and assert the walker reproduces the values. `PointCloud2` exercises the
+    /// shapes the dynamic fallback cares about in one message: `header.stamp`
+    /// extraction, a sequence of nested messages (`fields`, the message-sequence
+    /// path), nested string/integer scalars, a `uint8[]` mapped to `Bytes`, and
+    /// plain scalars — all in-process, no node or DDS required.
+    fn populated_point_cloud() -> sensor_msgs::msg::rmw::PointCloud2 {
+        let mut msg = sensor_msgs::msg::rmw::PointCloud2::default();
+        msg.header.stamp.sec = 7;
+        msg.header.stamp.nanosec = 42;
+        msg.width = 3;
+        let mut point_field = sensor_msgs::msg::rmw::PointField::default();
+        point_field.name = "x".into();
+        point_field.datatype = 7;
+        point_field.count = 1;
+        msg.fields = [point_field].into_iter().collect();
+        msg.data = [1u8, 2, 3].into_iter().collect();
+        msg
+    }
+
+    #[test]
+    fn point_cloud_round_trips_through_dynvalue() {
+        let dynamic = DynamicMessage::convert_from_rmw_message(populated_point_cloud()).unwrap();
+        let value = message_to_dynvalue(&dynamic.view());
+
+        let DynValue::Struct { type_name, fields } = value else {
+            panic!("expected struct, got {value:?}");
+        };
+        // structure.type_name excludes the package, matching static converters.
+        assert_eq!(type_name, "PointCloud2");
+        assert_eq!(field(&fields, "width"), &DynValue::U32(3));
+        assert_eq!(field(&fields, "data"), &DynValue::Bytes(vec![1, 2, 3]));
+
+        // `fields` is a sequence of nested messages (the message-sequence path).
+        let DynValue::Array(point_fields) = field(&fields, "fields") else {
+            panic!("fields should be an array");
+        };
+        assert_eq!(point_fields.len(), 1);
+        let DynValue::Struct { fields: pf, .. } = &point_fields[0] else {
+            panic!("point field should be a struct");
+        };
+        assert_eq!(field(pf, "name"), &DynValue::String("x".into()));
+        assert_eq!(field(pf, "datatype"), &DynValue::U8(7));
+    }
+
+    /// `header.stamp` is extracted without per-type knowledge.
+    #[test]
+    fn stamp_is_extracted_from_header() {
+        let dynamic = DynamicMessage::convert_from_rmw_message(populated_point_cloud()).unwrap();
+        let stamp = extract_stamp(&dynamic.view());
+
+        assert_eq!(stamp, Some(Timestamp { sec: 7, nanosec: 42 }));
+    }
+}
