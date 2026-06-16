@@ -11,17 +11,18 @@
 //! [`DynValue`] tree the static converters produce, so the wire protocol and
 //! every downstream client (CLI, TUI) are unchanged.
 //!
-//! Status: spike. Single nested messages, numeric/bool/string scalars, fixed
-//! arrays, unbounded sequences, and fixed arrays of nested messages are
-//! converted with full fidelity. Less common shapes (message sequences,
-//! bounded sequences, wide/long-double/wstring scalars) currently fall back to
-//! a debug-string representation and are marked with `TODO` below.
+//! Status: spike. Nested messages, numeric/bool/string scalars, fixed arrays,
+//! unbounded and bounded sequences (including sequences of nested messages),
+//! and fixed arrays of nested messages are converted with full fidelity. The
+//! remaining shapes (wide/long-double/wstring scalars and their arrays) are
+//! platform-specific or rare in robot telemetry and currently fall back to a
+//! debug-string representation, marked with `TODO` below.
 
 use std::error::Error;
 
 use rclrs::{
-    ArrayValue, DynamicMessage, DynamicMessageView, MessageInfo, MessageTypeName, SequenceValue,
-    SimpleValue, Value,
+    ArrayValue, BoundedSequenceValue, DynamicMessage, DynamicMessageView, MessageInfo,
+    MessageTypeName, SequenceValue, SimpleValue, Value,
 };
 use talos_common::protocol::messages::Response;
 use talos_common::protocol::types::{DynValue, Timestamp};
@@ -70,8 +71,13 @@ fn message_to_dynvalue(view: &DynamicMessageView<'_>) -> DynValue {
     for field in &structure.fields {
         let value = match view.get(&field.name) {
             Some(v) => value_to_dynvalue(v),
-            // Should not happen: the field name came from the structure itself.
-            None => DynValue::String(String::new()),
+            None => {
+                // The field name came from the structure itself, so this points
+                // to an introspection mismatch rather than missing data. Make it
+                // visible instead of silently emitting an empty string.
+                warn!(field = %field.name, "dynamic message field missing from view");
+                DynValue::String(String::new())
+            }
         };
         fields.push((field.name.clone(), value));
     }
@@ -87,9 +93,7 @@ fn value_to_dynvalue(value: Value<'_>) -> DynValue {
         Value::Simple(s) => simple_to_dynvalue(s),
         Value::Array(a) => array_to_dynvalue(a),
         Value::Sequence(s) => sequence_to_dynvalue(s),
-        // TODO(spike): bounded sequences. Deref to a slice like Sequence, but
-        // left as a faithful debug rendering until covered + tested.
-        Value::BoundedSequence(b) => DynValue::String(format!("{b:?}")),
+        Value::BoundedSequence(b) => bounded_sequence_to_dynvalue(b),
     }
 }
 
@@ -192,8 +196,59 @@ fn sequence_to_dynvalue(value: SequenceValue<'_>) -> DynValue {
         SequenceValue::StringSequence(s) => {
             DynValue::Array(s.iter().map(|v| DynValue::String(v.to_string())).collect())
         }
-        // TODO(spike): MessageSequence (e.g. PoseArray.poses) needs the
-        // DynamicSequence<DynamicMessageView> iteration API wired in + tested.
+        // e.g. PoseArray.poses. `DynamicSequence<T>` dereferences to `[T]`.
+        SequenceValue::MessageSequence(s) => {
+            DynValue::Array(s.iter().map(message_to_dynvalue).collect())
+        }
+        // TODO(spike): wide/long-double/wstring sequences.
+        other => DynValue::String(format!("{other:?}")),
+    }
+}
+
+/// Bounded-sequence conversion. `DynamicBoundedSequence<T>` dereferences to
+/// `[T]`, so each variant is handled exactly like its unbounded counterpart.
+fn bounded_sequence_to_dynvalue(value: BoundedSequenceValue<'_>) -> DynValue {
+    match value {
+        BoundedSequenceValue::DoubleBoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::F64(*v)).collect())
+        }
+        BoundedSequenceValue::FloatBoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::F32(*v)).collect())
+        }
+        BoundedSequenceValue::BooleanBoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::Bool(*v)).collect())
+        }
+        BoundedSequenceValue::Uint8BoundedSequence(s)
+        | BoundedSequenceValue::OctetBoundedSequence(s)
+        | BoundedSequenceValue::CharBoundedSequence(s) => DynValue::Bytes(s.to_vec()),
+        BoundedSequenceValue::Int8BoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::I8(*v)).collect())
+        }
+        BoundedSequenceValue::Uint16BoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::U16(*v)).collect())
+        }
+        BoundedSequenceValue::Int16BoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::I16(*v)).collect())
+        }
+        BoundedSequenceValue::Uint32BoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::U32(*v)).collect())
+        }
+        BoundedSequenceValue::Int32BoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::I32(*v)).collect())
+        }
+        BoundedSequenceValue::Uint64BoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::U64(*v)).collect())
+        }
+        BoundedSequenceValue::Int64BoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::I64(*v)).collect())
+        }
+        BoundedSequenceValue::StringBoundedSequence(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::String(v.to_string())).collect())
+        }
+        BoundedSequenceValue::MessageBoundedSequence(s) => {
+            DynValue::Array(s.iter().map(message_to_dynvalue).collect())
+        }
+        // TODO(spike): wide/long-double/wstring/bounded-string bounded sequences.
         other => DynValue::String(format!("{other:?}")),
     }
 }
