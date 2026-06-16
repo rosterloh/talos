@@ -9,6 +9,15 @@ those entries into the versioned section when a release is created.
 
 ### Added
 
+- Runtime dynamic-message fallback in `talos-agent`: topics whose message type
+  has no compiled-in converter are now subscribed via `rclrs`'s
+  `DynamicMessage` introspection support and rendered into the existing
+  `DynValue` tree, instead of being skipped. Scalars, nested messages, fixed
+  arrays, unbounded and bounded sequences (including sequences of nested
+  messages, e.g. `PoseArray.poses`), and arrays of nested messages are covered;
+  only wide/long-double/wstring scalars currently fall back to a debug
+  representation (tracked as follow-up). The static registry remains the fast
+  path for known types, so existing behavior is unchanged.
 - Add a Coverage workflow that publishes LCOV artifacts for non-ROS crates and
   fails pull requests when line coverage drops against the base branch.
 
