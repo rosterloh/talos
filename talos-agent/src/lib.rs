@@ -7,6 +7,7 @@
 
 pub mod bridge;
 pub mod conversions;
+pub mod dynamic;
 pub mod router;
 pub mod server;
 

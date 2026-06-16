@@ -4,7 +4,7 @@ use rclrs::{CreateBasicExecutor, IntoPrimitiveOptions};
 use talos_common::config::{AgentConfig, QosProfile};
 use talos_common::protocol::messages::Response;
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::conversions::message_type_entry;
 use crate::{GraphHandle, JointPublisher};
@@ -40,7 +40,11 @@ pub async fn run(
             entry.subscribe(&node, opts, topic.clone(), type_name.clone(), tx)?;
             info!(topic = %topic, msg_type = %type_name, "subscribed");
         } else {
-            warn!(topic = %topic, msg_type = %type_name, "unsupported message type, skipping");
+            // No compiled-in converter: fall back to a runtime dynamic-message
+            // subscription that resolves the type via introspection typesupport.
+            crate::dynamic::log_dynamic_fallback(&topic, &type_name);
+            crate::dynamic::subscribe_dynamic(&node, opts, topic.clone(), type_name.clone(), tx)?;
+            info!(topic = %topic, msg_type = %type_name, "subscribed (dynamic)");
         }
     }
 
