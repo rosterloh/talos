@@ -15,7 +15,7 @@ repositories:
   ros2/common_interfaces:
     type: git
     url: https://github.com/ros2/common_interfaces.git
-    version: 5.5.1
+    version: 5.5.2
   ros2/example_interfaces:
     type: git
     url: https://github.com/ros2/example_interfaces.git
@@ -23,7 +23,7 @@ repositories:
   ros2/rcl_interfaces:
     type: git
     url: https://github.com/ros2/rcl_interfaces.git
-    version: 2.3.0
+    version: 2.3.1
   ros2/test_interface_files:
     type: git
     url: https://github.com/ros2/test_interface_files.git
@@ -31,11 +31,11 @@ repositories:
   ros2/rosidl_core:
     type: git
     url: https://github.com/ros2/rosidl_core.git
-    version: 0.3.1
+    version: 0.3.2
   ros2/rosidl_defaults:
     type: git
     url: https://github.com/ros2/rosidl_defaults.git
-    version: 1.7.1
+    version: 1.7.2
   ros2/unique_identifier_msgs:
     type: git
     url: https://github.com/ros2/unique_identifier_msgs.git
