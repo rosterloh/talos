@@ -5,8 +5,11 @@ pub enum Error {
     #[error("frame too large: {size} bytes (max: {max})")]
     FrameTooLarge { size: usize, max: usize },
 
-    #[error("bincode error: {0}")]
-    Bincode(#[from] bincode::Error),
+    #[error("bincode encode error: {0}")]
+    Encode(#[from] bincode::error::EncodeError),
+
+    #[error("bincode decode error: {0}")]
+    Decode(#[from] bincode::error::DecodeError),
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),

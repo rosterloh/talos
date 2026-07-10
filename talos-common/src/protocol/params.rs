@@ -258,8 +258,8 @@ mod tests {
                 name: "p".into(),
                 value,
             };
-            let bytes = bincode::serialize(&info).expect("serialize param");
-            let decoded: ParamInfo = bincode::deserialize(&bytes).expect("deserialize param");
+            let bytes = crate::protocol::codec::to_vec(&info).expect("serialize param");
+            let decoded: ParamInfo = crate::protocol::codec::from_slice(&bytes).expect("deserialize param");
             assert_eq!(info, decoded);
         }
     }

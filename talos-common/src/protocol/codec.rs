@@ -7,6 +7,27 @@ use crate::error::Error;
 const DEFAULT_MAX_FRAME_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
 const LENGTH_PREFIX_SIZE: usize = 4;
 
+// bincode's legacy config matches the bincode 1 wire format (fixed-width
+// little-endian integers), so agents and clients built before and after the
+// bincode 3 upgrade stay wire-compatible.
+fn wire_config() -> bincode::config::Configuration<
+    bincode::config::LittleEndian,
+    bincode::config::Fixint,
+    bincode::config::NoLimit,
+> {
+    bincode::config::legacy()
+}
+
+/// Serialize a value using the Talos wire format.
+pub fn to_vec<T: Serialize>(value: &T) -> Result<Vec<u8>, Error> {
+    Ok(bincode::serde::encode_to_vec(value, wire_config())?)
+}
+
+/// Deserialize a value from the Talos wire format.
+pub fn from_slice<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, Error> {
+    Ok(bincode::serde::decode_from_slice(bytes, wire_config())?.0)
+}
+
 pub struct BincodeCodec<T> {
     max_frame_size: usize,
     _marker: std::marker::PhantomData<T>,
@@ -60,7 +81,7 @@ impl<T: for<'de> Deserialize<'de>> Decoder for BincodeCodec<T> {
 
         src.advance(LENGTH_PREFIX_SIZE);
         let payload = src.split_to(length);
-        let item = bincode::deserialize(&payload)?;
+        let item = from_slice(&payload)?;
         Ok(Some(item))
     }
 }
@@ -69,7 +90,7 @@ impl<T: Serialize> Encoder<T> for BincodeCodec<T> {
     type Error = Error;
 
     fn encode(&mut self, item: T, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let payload = bincode::serialize(&item)?;
+        let payload = to_vec(&item)?;
 
         if payload.len() > self.max_frame_size {
             return Err(Error::FrameTooLarge {

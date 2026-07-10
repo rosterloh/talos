@@ -166,7 +166,7 @@ async fn write_quic_frame<T: Serialize>(
     send: &mut quinn::SendStream,
     value: &T,
 ) -> Result<(), String> {
-    let payload = bincode::serialize(value).map_err(|e| e.to_string())?;
+    let payload = talos_common::protocol::codec::to_vec(value).map_err(|e| e.to_string())?;
     let len: u32 = u32::try_from(payload.len())
         .map_err(|_| format!("frame too large: {} bytes exceeds u32::MAX", payload.len()))?;
     let mut buf = BytesMut::with_capacity(4 + payload.len());

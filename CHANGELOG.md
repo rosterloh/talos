@@ -26,8 +26,12 @@ those entries into the versioned section when a release is created.
 - Update dependencies: `toml` 0.8 → 1, `rcgen` 0.13 → 0.14 (renamed
   `CertifiedKey` field in cert generation), `ratatui` 0.29 → 0.30,
   `crossterm` 0.28 → 0.29, plus semver-compatible lockfile refreshes.
-  `bincode` stays on 1.x; migrating the protocol codec to bincode 3 is
-  deferred to a dedicated change.
+- Migrate the protocol codec from `bincode` 1 to 2 using the `legacy`
+  configuration, keeping the wire format byte-identical so mixed-version
+  agents and clients still interoperate. Serialization now goes through
+  shared `protocol::codec::{to_vec, from_slice}` helpers. (crates.io lists
+  a `bincode` 3.0.0, but it is an empty placeholder release; 2.x is the
+  current real release line.)
 
 ## [0.2.0] - 2026-06-10
 
