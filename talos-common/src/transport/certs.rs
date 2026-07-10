@@ -8,12 +8,12 @@ use crate::error::Error;
 /// Returns `(cert_chain, private_key)` ready to pass to `rustls::ServerConfig`.
 pub fn generate_self_signed()
 -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), Error> {
-    let rcgen::CertifiedKey { cert, key_pair } =
+    let rcgen::CertifiedKey { cert, signing_key } =
         rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
             .map_err(|e| Error::Config(format!("rcgen: {e}")))?;
 
     let cert_der = cert.der().clone();
-    let key_der = PrivatePkcs8KeyDer::from(key_pair.serialize_der());
+    let key_der = PrivatePkcs8KeyDer::from(signing_key.serialize_der());
 
     Ok((vec![cert_der], key_der.into()))
 }

@@ -21,6 +21,14 @@ those entries into the versioned section when a release is created.
 - Add a Coverage workflow that publishes LCOV artifacts for non-ROS crates and
   fails pull requests when line coverage drops against the base branch.
 
+### Changed
+
+- Update dependencies: `toml` 0.8 → 1, `rcgen` 0.13 → 0.14 (renamed
+  `CertifiedKey` field in cert generation), `ratatui` 0.29 → 0.30,
+  `crossterm` 0.28 → 0.29, plus semver-compatible lockfile refreshes.
+  `bincode` stays on 1.x; migrating the protocol codec to bincode 3 is
+  deferred to a dedicated change.
+
 ## [0.2.0] - 2026-06-10
 
 ### Added
