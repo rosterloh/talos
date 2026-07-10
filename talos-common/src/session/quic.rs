@@ -160,14 +160,14 @@ async fn read_data_stream(stream: RecvStream, tx: mpsc::UnboundedSender<(String,
         Some(Ok(b)) => b.freeze(),
         _ => return,
     };
-    let header: StreamHeader = match bincode::deserialize(&header_bytes) {
+    let header: StreamHeader = match crate::protocol::codec::from_slice(&header_bytes) {
         Ok(h) => h,
         Err(_) => return,
     };
 
     // ── data frames ───────────────────────────────────────────────────────────
     while let Some(Ok(frame_bytes)) = framed.next().await {
-        let frame: TopicFrame = match bincode::deserialize(&frame_bytes) {
+        let frame: TopicFrame = match crate::protocol::codec::from_slice(&frame_bytes) {
             Ok(f) => f,
             Err(_) => break,
         };

@@ -20,7 +20,7 @@ license = "MIT"
 talos-common = { path = "talos-common" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
-bincode = "1"
+bincode = { version = "2", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio-util = { version = "0.7", features = ["codec"] }

@@ -6,14 +6,14 @@ use super::types::{
 };
 
 fn round_trip_request(req: &Request) {
-    let bytes = bincode::serialize(req).expect("serialize request");
-    let decoded: Request = bincode::deserialize(&bytes).expect("deserialize request");
+    let bytes = super::codec::to_vec(req).expect("serialize request");
+    let decoded: Request = super::codec::from_slice(&bytes).expect("deserialize request");
     assert_eq!(req, &decoded);
 }
 
 fn round_trip_response(resp: &Response) {
-    let bytes = bincode::serialize(resp).expect("serialize response");
-    let decoded: Response = bincode::deserialize(&bytes).expect("deserialize response");
+    let bytes = super::codec::to_vec(resp).expect("serialize response");
+    let decoded: Response = super::codec::from_slice(&bytes).expect("deserialize response");
     assert_eq!(resp, &decoded);
 }
 
@@ -207,8 +207,8 @@ fn topic_frame_round_trip() {
             ],
         },
     };
-    let bytes = bincode::serialize(&frame).expect("serialize");
-    let decoded: TopicFrame = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = super::codec::to_vec(&frame).expect("serialize");
+    let decoded: TopicFrame = super::codec::from_slice(&bytes).expect("deserialize");
     assert_eq!(frame, decoded);
 }
 
@@ -218,8 +218,8 @@ fn stream_header_round_trip() {
         topic: "/odom".into(),
         type_name: "nav_msgs/msg/Odometry".into(),
     };
-    let bytes = bincode::serialize(&header).expect("serialize");
-    let decoded: StreamHeader = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = super::codec::to_vec(&header).expect("serialize");
+    let decoded: StreamHeader = super::codec::from_slice(&bytes).expect("deserialize");
     assert_eq!(header, decoded);
 }
 
@@ -229,8 +229,8 @@ fn topic_sub_round_trip() {
         topic: "/cmd_vel".into(),
         type_name: "geometry_msgs/msg/Twist".into(),
     };
-    let bytes = bincode::serialize(&ts).expect("serialize");
-    let decoded: TopicSub = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = super::codec::to_vec(&ts).expect("serialize");
+    let decoded: TopicSub = super::codec::from_slice(&bytes).expect("deserialize");
     assert_eq!(ts, decoded);
 }
 
@@ -252,8 +252,8 @@ fn dynvalue_all_primitives() {
         DynValue::Bytes(vec![0xDE, 0xAD, 0xBE, 0xEF]),
     ];
     for val in &values {
-        let bytes = bincode::serialize(val).expect("serialize");
-        let decoded: DynValue = bincode::deserialize(&bytes).expect("deserialize");
+        let bytes = super::codec::to_vec(val).expect("serialize");
+        let decoded: DynValue = super::codec::from_slice(&bytes).expect("deserialize");
         assert_eq!(val, &decoded);
     }
 }
@@ -272,8 +272,8 @@ fn joint_info_round_trip() {
             velocity: 1.0,
         }),
     };
-    let bytes = bincode::serialize(&info).expect("serialize");
-    let decoded: JointInfo = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = super::codec::to_vec(&info).expect("serialize");
+    let decoded: JointInfo = super::codec::from_slice(&bytes).expect("deserialize");
     assert_eq!(info, decoded);
 }
 
