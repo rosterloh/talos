@@ -26,5 +26,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
-toml = "0.8"
+toml = "1"
 thiserror = "2"
