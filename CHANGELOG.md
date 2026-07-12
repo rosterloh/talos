@@ -20,6 +20,7 @@ those entries into the versioned section when a release is created.
   path for known types, so existing behavior is unchanged.
 - Add a Coverage workflow that publishes LCOV artifacts for non-ROS crates and
   fails pull requests when line coverage drops against the base branch.
+- Add `scripts/gen-cargo-patches.sh` to regenerate `.cargo/config.toml`'s `[patch.crates-io]` block from the ROS 2 message crates `talos-agent` actually depends on (transitively), instead of hand-maintaining the list.
 
 ### Changed
 
