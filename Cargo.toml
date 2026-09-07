@@ -6,9 +6,6 @@ members = [
     "talos-agent",
     "talos-tui",
 ]
-# rclrs_ws is a nested colcon/cargo workspace built via pixi; keep its crates
-# out of this workspace so cargo doesn't try to adopt them.
-exclude = ["rclrs_ws"]
 
 [workspace.package]
 version = "0.2.0"
@@ -28,3 +25,11 @@ bytes = "1"
 clap = { version = "4", features = ["derive"] }
 toml = "1"
 thiserror = "2"
+
+# ROS 2 Lyrical support landed upstream in ros2-rust/ros2_rust#658 but is not
+# released: crates.io rclrs 0.7.0 predates it and panics with "Unsupported ROS
+# distribution". Drop this patch once a release with the lyrical bindings ships.
+# The message crate patches live in .cargo/config.toml (auto-generated).
+[patch.crates-io.rclrs]
+git = "https://github.com/ros2-rust/ros2_rust"
+rev = "2766eab6e1e9208a67e8570bfa5027ec38387534"

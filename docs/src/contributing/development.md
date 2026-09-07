@@ -19,11 +19,12 @@ Without ROS 2:
 cargo check -p talos-common -p talos-cli -p talos-tui
 ```
 
-With the ROS 2/rclrs environment:
+With the ROS 2 Lyrical environment (provided by Pixi; `rclrs` is pinned to an
+upstream git revision, see `Cargo.toml`):
 
 ```bash
-source rclrs_ws/install/setup.bash
-cargo check --workspace
+pixi install
+pixi run check          # or: pixi shell, then cargo check --workspace
 ```
 
 With QUIC:
