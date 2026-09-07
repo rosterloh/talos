@@ -25,11 +25,11 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "ament_rs"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b901da946b7b1620d44563e10c7634681af855a7f5fb59bd09b6eb801dcf6e49"
+checksum = "68248386ad9d8f95d809309d97ae10ae5984818a563b30c13c9b44aa41f439da"
 dependencies = [
- "itertools 0.8.2",
+ "itertools",
  "walkdir",
 ]
 
@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "builtin_interfaces"
-version = "2.3.1"
+version = "2.4.5"
 dependencies = [
  "rosidl_runtime_rs",
 ]
@@ -429,6 +429,16 @@ name = "bytes"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
+
+[[package]]
+name = "cargo_toml"
+version = "0.22.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "374b7c592d9c00c1f4972ea58390ac6b18cbb6ab79011f3bdc90a0b82ca06b77"
+dependencies = [
+ "serde",
+ "toml 0.9.12+spec-1.1.0",
+]
 
 [[package]]
 name = "castaway"
@@ -1035,7 +1045,7 @@ dependencies = [
 
 [[package]]
 name = "geometry_msgs"
-version = "5.5.2"
+version = "5.9.2"
 dependencies = [
  "builtin_interfaces",
  "rosidl_runtime_rs",
@@ -1194,15 +1204,6 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
-
-[[package]]
-name = "itertools"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f56a2d0bc861f9165be4eb3442afd3c236d8a98afd426f65d92324ae1091a484"
-dependencies = [
- "either",
-]
 
 [[package]]
 name = "itertools"
@@ -1459,7 +1460,7 @@ dependencies = [
 
 [[package]]
 name = "nav_msgs"
-version = "5.5.2"
+version = "5.9.2"
 dependencies = [
  "builtin_interfaces",
  "geometry_msgs",
@@ -1982,7 +1983,7 @@ dependencies = [
  "compact_str",
  "critical-section",
  "hashbrown 0.17.1",
- "itertools 0.14.0",
+ "itertools",
  "kasuari",
  "lru",
  "palette",
@@ -2047,7 +2048,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "indoc",
  "instability",
- "itertools 0.14.0",
+ "itertools",
  "line-clipping",
  "ratatui-core",
  "serde",
@@ -2073,7 +2074,7 @@ dependencies = [
 
 [[package]]
 name = "rcl_interfaces"
-version = "2.3.1"
+version = "2.4.5"
 dependencies = [
  "builtin_interfaces",
  "rosidl_runtime_rs",
@@ -2083,6 +2084,7 @@ dependencies = [
 [[package]]
 name = "rclrs"
 version = "0.7.0"
+source = "git+https://github.com/ros2-rust/ros2_rust?rev=2766eab6e1e9208a67e8570bfa5027ec38387534#2766eab6e1e9208a67e8570bfa5027ec38387534"
 dependencies = [
  "ament_rs",
  "async-std",
@@ -2091,6 +2093,7 @@ dependencies = [
  "futures",
  "futures-lite",
  "libloading",
+ "ros-env",
  "rosidl_runtime_rs",
  "rustflags",
  "tokio",
@@ -2151,8 +2154,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ros-env"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f03ecf9ea3b53e2343d531c06e0fd430b2d516732417b4cd0fbd997455b4c35"
+dependencies = [
+ "ament_rs",
+ "cargo_toml",
+ "rosidl_runtime_rs",
+]
+
+[[package]]
 name = "rosidl_runtime_rs"
-version = "0.6.0"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24b1243b39e62b536c0d634d4f1bed8098b94c00920ddcef14b4bcced372e89d"
 dependencies = [
  "cfg-if",
 ]
@@ -2344,7 +2360,7 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "sensor_msgs"
-version = "5.5.2"
+version = "5.9.2"
 dependencies = [
  "builtin_interfaces",
  "geometry_msgs",
@@ -2419,7 +2435,7 @@ dependencies = [
 
 [[package]]
 name = "service_msgs"
-version = "2.3.1"
+version = "2.4.5"
 dependencies = [
  "builtin_interfaces",
  "rosidl_runtime_rs",
@@ -2518,7 +2534,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "std_msgs"
-version = "5.5.2"
+version = "5.9.2"
 dependencies = [
  "builtin_interfaces",
  "rosidl_runtime_rs",
@@ -2643,7 +2659,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
- "toml",
+ "toml 1.1.2+spec-1.1.0",
  "tracing",
  "urdf-rs",
 ]
@@ -2902,6 +2918,21 @@ dependencies = [
 
 [[package]]
 name = "toml"
+version = "0.9.12+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime 0.7.5+spec-1.1.0",
+ "toml_parser",
+ "toml_writer",
+ "winnow 0.7.15",
+]
+
+[[package]]
+name = "toml"
 version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81f3d15e84cbcd896376e6730314d59fb5a87f31e4b038454184435cd57defee"
@@ -2909,10 +2940,19 @@ dependencies = [
  "indexmap",
  "serde_core",
  "serde_spanned",
- "toml_datetime",
+ "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
  "toml_writer",
- "winnow",
+ "winnow 1.0.3",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.7.5+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
+dependencies = [
+ "serde_core",
 ]
 
 [[package]]
@@ -2930,7 +2970,7 @@ version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
 dependencies = [
- "winnow",
+ "winnow 1.0.3",
 ]
 
 [[package]]
@@ -3031,7 +3071,7 @@ version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16b380a1238663e5f8a691f9039c73e1cdae598a30e9855f541d29b08b53e9a5"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "unicode-segmentation",
  "unicode-width",
 ]
@@ -3532,6 +3572,12 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+
+[[package]]
+name = "winnow"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 
 [[package]]
 name = "winnow"

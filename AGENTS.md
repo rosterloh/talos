@@ -10,8 +10,8 @@ Talos is a terminal-native tool for observing and interacting with ROS 2 systems
 
 ```bash
 # ROS 2 Lyrical environment (Pixi) is required for talos-agent. It provides the
-# ROS 2 runtime + pre-generated Rust message bindings; rclrs comes from
-# crates.io and .cargo/config.toml patches the message crates to the env.
+# ROS 2 runtime + pre-generated Rust message bindings, which .cargo/config.toml
+# patches in; rclrs is pinned to an upstream git rev in Cargo.toml.
 pixi install                 # one time: resolve the robostack-lyrical env
 pixi shell                   # enter the env (or prefix commands with `pixi run`)
 
@@ -32,10 +32,21 @@ cargo test -p talos-agent --test integration  # UDS integration tests
 cargo test -p talos-agent --test integration --features quic  # + QUIC tests
 ```
 
-> **Pending:** Building `talos-agent` needs an `rclrs` release with ROS 2 Lyrical
-> support (upstream PR [ros2-rust/ros2_rust#640](https://github.com/ros2-rust/ros2_rust/pull/640)).
-> Until it lands on crates.io, the agent build fails with `Unsupported ROS
-> distribution`. The non-ROS crates are unaffected.
+> **Note:** `rclrs` is pinned to a git revision because ROS 2 Lyrical support
+> ([ros2-rust/ros2_rust#658](https://github.com/ros2-rust/ros2_rust/pull/658))
+> is merged upstream but unreleased. Drop the `[patch.crates-io.rclrs]` block in
+> `Cargo.toml` once a release with the Lyrical bindings ships.
+>
+> **Not yet runtime-ready:** the agent compiles and its unit tests pass, but any
+> message with a primitive sequence (`sensor_msgs/JointState`, the `rcl_interfaces`
+> parameter services) is read at the wrong offset and segfaults — the Lyrical
+> `Sequence<T>` ABI mismatch in
+> [ros2-rust/ros2_rust#659](https://github.com/ros2-rust/ros2_rust/issues/659).
+> `rosidl_runtime_rs` 0.7.0 carries the fix, but nothing consumes it yet: `rclrs`
+> and the robostack-generated message crates both require `^0.6`, and the
+> generator-side change (`ros2-rust/rosidl_rust#38`) is still open. Reproduced on
+> both `osx-arm64` and `linux-aarch64` via
+> `cargo test -p talos-agent --test integration`.
 
 ## Default Change Workflow
 

@@ -19,8 +19,8 @@ Without ROS 2:
 cargo check -p talos-common -p talos-cli -p talos-tui
 ```
 
-With the ROS 2 Lyrical environment (provided by Pixi; `rclrs` comes from
-crates.io):
+With the ROS 2 Lyrical environment (provided by Pixi; `rclrs` is pinned to an
+upstream git revision, see `Cargo.toml`):
 
 ```bash
 pixi install

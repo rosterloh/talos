@@ -2,13 +2,20 @@
 authors = ["Richard Osterloh <richard.osterloh@gmail.com>"]
 channels = ["https://repo.prefix.dev/robostack-lyrical", "conda-forge"]
 name = "talos"
-platforms = ["linux-64", "linux-aarch64"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
 version = "0.1.5"
 
 # The agent links rclrs (from crates.io) against the ROS 2 Lyrical runtime and
 # the pre-generated Rust message bindings shipped by the robostack-lyrical
 # conda packages. No ROS 2 source build is required — `.cargo/config.toml`
 # patches the message crates to the bindings in this environment.
+# The conda packages set LD_LIBRARY_PATH, which macOS ignores, and SIP strips
+# DYLD_* on the way through /bin/sh. Bake the environment's lib directory into
+# the binaries as an rpath instead, or the ROS 2 typesupport dylibs link fine
+# but fail to load at run time.
+[target.osx-arm64.activation.env]
+RUSTFLAGS = "-C link-arg=-Wl,-rpath,$CONDA_PREFIX/lib"
+
 [tasks]
 build = "cargo build"
 build-quic = "cargo build --features quic"

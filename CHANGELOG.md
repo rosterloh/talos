@@ -34,18 +34,24 @@ those entries into the versioned section when a release is created.
   a `bincode` 3.0.0, but it is an empty placeholder release; 2.x is the
   current real release line.)
 - Upgrade the ROS 2 environment from Kilted to Lyrical Luth and stop building
-  `rclrs` from source. `rclrs` and `rosidl_runtime_rs` now come from crates.io,
-  and the `robostack-lyrical` conda packages provide the ROS 2 runtime plus
+  `rclrs` from source. `rosidl_runtime_rs` now comes from crates.io, and the
+  `robostack-lyrical` conda packages provide the ROS 2 runtime plus
   pre-generated Rust message bindings, which `.cargo/config.toml` patches in.
+  `rclrs` is pinned to an upstream git revision until a release with Lyrical
+  bindings ships on crates.io (see the note in `Cargo.toml`).
 - Move the Pixi manifest to the repository root (from `rclrs_ws/`) and slim it to
   `ros-lyrical-ros-base` + the Rust toolchain. Removed the `rclrs_ws` colcon /
   vcstool source-build workspace and its `setup.bash` step; building now only
   needs `pixi install` then `cargo build`.
+- Add `osx-arm64` to the Pixi platforms, so the agent can be built and checked
+  on Apple Silicon workstations alongside `linux-64` / `linux-aarch64`.
 
-> Building `talos-agent` is blocked until an `rclrs` release with ROS 2 Lyrical
-> support lands on crates.io (upstream PR
-> [ros2-rust/ros2_rust#640](https://github.com/ros2-rust/ros2_rust/pull/640)).
-> The client crates are unaffected.
+> The agent builds on Lyrical but is not yet runtime-ready: messages with
+> primitive sequences (`sensor_msgs/JointState`, the parameter services) segfault
+> on the `Sequence<T>` ABI mismatch tracked in
+> [ros2-rust/ros2_rust#659](https://github.com/ros2-rust/ros2_rust/issues/659).
+> `rosidl_runtime_rs` 0.7.0 carries the fix, but `rclrs` and the generated
+> message crates still require `^0.6`. The client crates are unaffected.
 
 ## [0.2.0] - 2026-06-10
 

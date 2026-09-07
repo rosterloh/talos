@@ -28,7 +28,8 @@ serving clients.
 
 The agent requires the ROS 2 Lyrical environment, managed by Pixi. It provides
 the ROS 2 runtime and the pre-generated Rust message bindings; `rclrs` itself is
-pulled from crates.io. Enter the environment before building or running:
+pinned to an upstream git revision in `Cargo.toml`. Enter the environment before
+building or running:
 
 ```bash
 pixi install
