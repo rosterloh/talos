@@ -294,6 +294,7 @@ pub fn log_dynamic_fallback(topic: &str, type_name: &str) {
 mod tests {
     use super::*;
     use rclrs::DynamicMessage;
+    use ros_env::sensor_msgs;
 
     fn field<'a>(fields: &'a [(String, DynValue)], name: &str) -> &'a DynValue {
         &fields

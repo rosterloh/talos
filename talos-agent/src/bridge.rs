@@ -1,3 +1,4 @@
+use ros_env::sensor_msgs;
 use std::sync::Arc;
 
 use rclrs::{CreateBasicExecutor, IntoPrimitiveOptions};

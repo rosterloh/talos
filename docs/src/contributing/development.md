@@ -19,8 +19,7 @@ Without ROS 2:
 cargo check -p talos-common -p talos-cli -p talos-tui
 ```
 
-With the ROS 2 Lyrical environment (provided by Pixi; `rclrs` is pinned to an
-upstream git revision, see `Cargo.toml`):
+With the ROS 2 Lyrical environment (provided by Pixi):
 
 ```bash
 pixi install
@@ -62,10 +61,9 @@ cargo llvm-cov -p talos-common -p talos-cli -p talos-tui \
 python3 .github/scripts/coverage_report.py summarize coverage/lcov.info
 ```
 
-On machines without `rclrs_ws/install`, temporarily remove `talos-agent` from
-the workspace members and move `.cargo/config.toml` aside before running non-ROS
-coverage; the CI workflow does this because these packages do not need the ROS
-patch paths.
+On machines without the Pixi environment, temporarily remove `talos-agent` from
+the workspace members before running non-ROS coverage; the CI workflow does this
+because these packages do not need ROS 2.
 
 ## Rustdoc
 

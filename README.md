@@ -31,8 +31,7 @@ cargo check -p talos-common -p talos-cli -p talos-tui
 ```
 
 Build the full workspace inside the ROS 2 Lyrical Pixi environment (it provides
-the ROS 2 runtime and Rust message bindings; `rclrs` is pinned to an upstream
-git revision):
+the ROS 2 runtime and Rust message bindings):
 
 ```bash
 pixi install

@@ -10,8 +10,7 @@ Talos is a terminal-native tool for observing and interacting with ROS 2 systems
 
 ```bash
 # ROS 2 Lyrical environment (Pixi) is required for talos-agent. It provides the
-# ROS 2 runtime + pre-generated Rust message bindings, which .cargo/config.toml
-# patches in; rclrs is pinned to an upstream git rev in Cargo.toml.
+# ROS 2 runtime + pre-generated Rust message bindings, which ros-env compiles in.
 pixi install                 # one time: resolve the robostack-lyrical env
 pixi shell                   # enter the env (or prefix commands with `pixi run`)
 
@@ -32,21 +31,23 @@ cargo test -p talos-agent --test integration  # UDS integration tests
 cargo test -p talos-agent --test integration --features quic  # + QUIC tests
 ```
 
-> **Note:** `rclrs` is pinned to a git revision because ROS 2 Lyrical support
-> ([ros2-rust/ros2_rust#658](https://github.com/ros2-rust/ros2_rust/pull/658))
-> is merged upstream but unreleased. Drop the `[patch.crates-io.rclrs]` block in
-> `Cargo.toml` once a release with the Lyrical bindings ships.
+> **Message types come from `ros-env`**, not from standalone message crates.
+> `ros-env` `include!()`s every opted-in binding on `AMENT_PREFIX_PATH` and
+> compiles it against its own `rosidl_runtime_rs` (0.7 since ros-env 0.2.1). The
+> robostack bindings' `rosidl_runtime_rs = "0.6"` requirement is therefore
+> ignored, and the Lyrical `Sequence<T>` ABI fix
+> ([rosidl_runtime_rs#22](https://github.com/ros2-rust/rosidl_runtime_rs/pull/22),
+> `SequenceLayout::LayoutTail`) applies without regenerating messages. Import
+> them as `use ros_env::sensor_msgs;`. Keep exactly one `rosidl_runtime_rs` in
+> `Cargo.lock` — a stale `ros-env` 0.2.0 drags 0.6 back in and breaks the build.
 >
-> **Not yet runtime-ready:** the agent compiles and its unit tests pass, but any
-> message with a primitive sequence (`sensor_msgs/JointState`, the `rcl_interfaces`
-> parameter services) is read at the wrong offset and segfaults — the Lyrical
-> `Sequence<T>` ABI mismatch in
-> [ros2-rust/ros2_rust#659](https://github.com/ros2-rust/ros2_rust/issues/659).
-> `rosidl_runtime_rs` 0.7.0 carries the fix, but nothing consumes it yet: `rclrs`
-> and the robostack-generated message crates both require `^0.6`, and the
-> generator-side change (`ros2-rust/rosidl_rust#38`) is still open. Reproduced on
-> both `osx-arm64` and `linux-aarch64` via
-> `cargo test -p talos-agent --test integration`.
+> **Known issue:** `rclrs`'s `DynamicMessage` sizes every sequence field as a
+> 24-byte `TypeErasedSequence`
+> (`rclrs/src/dynamic_message/message_structure.rs`, `MessageFieldInfo::size`),
+> but on Lyrical primitive and string sequences are 32 bytes. The dynamic
+> fallback therefore panics on e.g. `sensor_msgs/PointCloud2`, and
+> `dynamic::tests::point_cloud_round_trips_through_dynvalue` fails until that is
+> fixed upstream.
 
 ## Default Change Workflow
 

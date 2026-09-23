@@ -11,6 +11,7 @@ pub mod dynamic;
 pub mod router;
 pub mod server;
 
+use ros_env::sensor_msgs;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

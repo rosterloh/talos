@@ -19,18 +19,13 @@ clap = { workspace = true }
 tokio-util = { workspace = true }
 bytes = { workspace = true }
 futures-util = { version = "0.3", features = ["sink"] }
-rclrs = "0.7"
-rosidl_runtime_rs = "0.6"
-nav_msgs = "*"
-geometry_msgs = "*"
-std_msgs = "*"
-sensor_msgs = "*"
-rcl_interfaces = "*"
-builtin_interfaces = "*"
+rclrs = "0.8"
+rosidl_runtime_rs = "0.7"
+ros-env = "0.3"
 
 # Only needed when quic feature is enabled (for type references in server.rs)
 quinn = { version = "0.11", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
-rclrs = "0.7"
+rclrs = "0.8"
