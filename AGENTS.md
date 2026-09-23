@@ -46,8 +46,9 @@ cargo test -p talos-agent --test integration --features quic  # + QUIC tests
 > (`rclrs/src/dynamic_message/message_structure.rs`, `MessageFieldInfo::size`),
 > but on Lyrical primitive and string sequences are 32 bytes. The dynamic
 > fallback therefore panics on e.g. `sensor_msgs/PointCloud2`, and
-> `dynamic::tests::point_cloud_round_trips_through_dynvalue` fails until that is
-> fixed upstream.
+> `dynamic::tests::point_cloud_round_trips_through_dynvalue` fails until
+> [ros2-rust/ros2_rust#714](https://github.com/ros2-rust/ros2_rust/pull/714)
+> ships in an `rclrs` release.
 
 ## Default Change Workflow
 

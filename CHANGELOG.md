@@ -51,6 +51,8 @@ those entries into the versioned section when a release is created.
 > Known issue on Lyrical: the `DynamicMessage` fallback in `rclrs` still panics
 > on primitive or string sequence fields (e.g. `sensor_msgs/PointCloud2`).
 > Topics with a compiled-in converter and the parameter services are unaffected.
+> Fix proposed upstream in
+> [ros2-rust/ros2_rust#714](https://github.com/ros2-rust/ros2_rust/pull/714).
 
 ## [0.2.0] - 2026-06-10
 
