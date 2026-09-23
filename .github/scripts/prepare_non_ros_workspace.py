@@ -17,6 +17,11 @@ def prepare(root: Path) -> None:
         raise RuntimeError("talos-agent workspace member not found")
     cargo_toml.write_text(text.replace(AGENT_MEMBER, "", 1))
 
+    # Base checkouts from before the ros-env switch still carry ROS patch paths.
+    cargo_config = root / ".cargo" / "config.toml"
+    if cargo_config.exists():
+        cargo_config.rename(cargo_config.with_name("config.toml.ros"))
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()

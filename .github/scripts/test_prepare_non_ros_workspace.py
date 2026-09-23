@@ -21,9 +21,12 @@ SPEC.loader.exec_module(prepare_non_ros_workspace)
 
 
 class PrepareNonRosWorkspaceTest(unittest.TestCase):
-    def test_prepare_removes_agent_member(self) -> None:
+    def test_prepare_removes_agent_member_and_moves_cargo_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            cargo_dir = root / ".cargo"
+            cargo_dir.mkdir()
+            (cargo_dir / "config.toml").write_text("[patch.crates-io]\n")
             cargo_toml = root / "Cargo.toml"
             cargo_toml.write_text(
                 "\n".join(
@@ -43,6 +46,11 @@ class PrepareNonRosWorkspaceTest(unittest.TestCase):
             prepare_non_ros_workspace.prepare(root)
 
             self.assertNotIn('"talos-agent"', cargo_toml.read_text())
+            self.assertFalse((cargo_dir / "config.toml").exists())
+            self.assertEqual(
+                (cargo_dir / "config.toml.ros").read_text(),
+                "[patch.crates-io]\n",
+            )
 
 
 if __name__ == "__main__":
