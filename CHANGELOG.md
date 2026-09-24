@@ -66,6 +66,8 @@ those entries into the versioned section when a release is created.
   Linux). Compilers 2.0 no longer exports `CC`/`CFLAGS`/`LDFLAGS`; on macOS its
   clang config files add the environment's `lib` directory as an rpath, so the
   `RUSTFLAGS` rpath workaround for `osx-arm64` is removed.
+- Refresh `Cargo.lock` with semver-compatible updates (e.g. `tokio` 1.53,
+  `quinn` 0.11.12, `rustls` 0.23.45, `clap` 4.6.7).
 
 > Known issue on Lyrical: the `DynamicMessage` fallback in `rclrs` still panics
 > on primitive or string sequence fields (e.g. `sensor_msgs/PointCloud2`).
