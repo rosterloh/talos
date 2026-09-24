@@ -31,6 +31,10 @@ pub async fn run(
     let mut executor = context.create_basic_executor();
     let node = executor.create_node("talos_agent")?;
 
+    // Held until the executor stops spinning: dropping a subscription handle
+    // removes it from the wait set and silently stops message delivery.
+    let mut subscriptions = Vec::new();
+
     for sub_config in &config.subscriptions {
         let topic = sub_config.topic.clone();
         let type_name = sub_config.msg_type.clone();
@@ -38,13 +42,25 @@ pub async fn run(
         let tx = bridge_tx.clone();
 
         if let Some(entry) = message_type_entry(&type_name) {
-            entry.subscribe(&node, opts, topic.clone(), type_name.clone(), tx)?;
+            subscriptions.push(entry.subscribe(
+                &node,
+                opts,
+                topic.clone(),
+                type_name.clone(),
+                tx,
+            )?);
             info!(topic = %topic, msg_type = %type_name, "subscribed");
         } else {
             // No compiled-in converter: fall back to a runtime dynamic-message
             // subscription that resolves the type via introspection typesupport.
             crate::dynamic::log_dynamic_fallback(&topic, &type_name);
-            crate::dynamic::subscribe_dynamic(&node, opts, topic.clone(), type_name.clone(), tx)?;
+            subscriptions.push(crate::dynamic::subscribe_dynamic(
+                &node,
+                opts,
+                topic.clone(),
+                type_name.clone(),
+                tx,
+            )?);
             info!(topic = %topic, msg_type = %type_name, "subscribed (dynamic)");
         }
     }
@@ -58,8 +74,13 @@ pub async fn run(
     *graph_handle.lock().await = Some(Arc::clone(&node));
 
     info!("rclrs node spinning");
-    executor.spin(rclrs::SpinOptions::default());
+    // `spin` blocks for the process lifetime and runs every ROS 2 callback on
+    // the calling thread. Inside a plain tokio task that starves the
+    // bridge→router forwarder: the callback's `tx.send` wakes it onto this
+    // worker's non-stealable LIFO slot, which is never polled again.
+    tokio::task::block_in_place(|| executor.spin(rclrs::SpinOptions::default()));
 
+    drop(subscriptions);
     *graph_handle.lock().await = None;
 
     Ok(())
