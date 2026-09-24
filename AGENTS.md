@@ -9,28 +9,46 @@ Talos is a terminal-native tool for observing and interacting with ROS 2 systems
 ## Build Commands
 
 ```bash
-# ROS 2 environment is required for talos-agent (rclrs bindings)
-source rclrs_ws/install/setup.bash
+# ROS 2 Lyrical environment (Pixi) is required for talos-agent. It provides the
+# ROS 2 runtime + pre-generated Rust message bindings, which ros-env compiles in.
+pixi install                 # one time: resolve the robostack-lyrical env
+pixi shell                   # enter the env (or prefix commands with `pixi run`)
 
-# Build / check everything
-cargo build
+# Build / check everything (inside the pixi shell, or via `pixi run <task>`)
+cargo build                  # or: pixi run build
 cargo check --workspace
 
-# Build without ROS 2 (cli, tui, common only)
+# Build without ROS 2 (cli, tui, common only) — no pixi env needed
 cargo check -p talos-common -p talos-cli -p talos-tui
 
 # Enable QUIC transport (feature-gated across all crates)
-cargo build --features quic
+cargo build --features quic  # or: pixi run build-quic
 
 # Tests
-cargo test --workspace                        # all tests
+cargo test --workspace                        # all tests (or: pixi run test)
 cargo test -p talos-common                    # protocol, config, URDF tests
 cargo test -p talos-agent --test integration  # UDS integration tests
 cargo test -p talos-agent --test integration --features quic  # + QUIC tests
-
-# ROS 2 workspace (Pixi-managed, only needed once or after rclrs changes)
-cd rclrs_ws && pixi run build
 ```
+
+> **Message types come from `ros-env`**, not from standalone message crates.
+> `ros-env` `include!()`s every opted-in binding on `AMENT_PREFIX_PATH` and
+> compiles it against its own `rosidl_runtime_rs` (0.7 since ros-env 0.2.1). The
+> robostack bindings' `rosidl_runtime_rs = "0.6"` requirement is therefore
+> ignored, and the Lyrical `Sequence<T>` ABI fix
+> ([rosidl_runtime_rs#22](https://github.com/ros2-rust/rosidl_runtime_rs/pull/22),
+> `SequenceLayout::LayoutTail`) applies without regenerating messages. Import
+> them as `use ros_env::sensor_msgs;`. Keep exactly one `rosidl_runtime_rs` in
+> `Cargo.lock` — a stale `ros-env` 0.2.0 drags 0.6 back in and breaks the build.
+>
+> **Known issue:** `rclrs`'s `DynamicMessage` sizes every sequence field as a
+> 24-byte `TypeErasedSequence`
+> (`rclrs/src/dynamic_message/message_structure.rs`, `MessageFieldInfo::size`),
+> but on Lyrical primitive and string sequences are 32 bytes. The dynamic
+> fallback therefore panics on e.g. `sensor_msgs/PointCloud2`, and
+> `dynamic::tests::point_cloud_round_trips_through_dynvalue` is `#[ignore]`d until
+> [ros2-rust/ros2_rust#714](https://github.com/ros2-rust/ros2_rust/pull/714)
+> ships in an `rclrs` release.
 
 ## Default Change Workflow
 

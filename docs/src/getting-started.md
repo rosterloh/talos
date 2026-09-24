@@ -17,12 +17,21 @@ cargo check -p talos-common -p talos-cli -p talos-tui
 
 ## Build Everything
 
-The agent depends on `rclrs`, so source the ROS 2/rclrs workspace first:
+The agent depends on `rclrs`. Install the Pixi environment — it provides the ROS
+2 Lyrical runtime and the pre-generated Rust message bindings, which `ros-env`
+picks up from `AMENT_PREFIX_PATH`. Then build inside it:
 
 ```bash
-source rclrs_ws/install/setup.bash
-cargo check --workspace
+pixi install                 # one time
+pixi run check               # or: pixi shell, then cargo check --workspace
 ```
+
+> **Note:** The client crates build without ROS 2.
+>
+> **Known issue:** topics without a compiled-in converter go through `rclrs`'s
+> `DynamicMessage` fallback, which still panics on primitive or string sequence
+> fields (e.g. `sensor_msgs/PointCloud2`) on Lyrical. Topics with a compiled-in
+> converter are unaffected.
 
 ## Enable QUIC
 

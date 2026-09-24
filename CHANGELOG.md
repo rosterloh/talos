@@ -20,7 +20,6 @@ those entries into the versioned section when a release is created.
   path for known types, so existing behavior is unchanged.
 - Add a Coverage workflow that publishes LCOV artifacts for non-ROS crates and
   fails pull requests when line coverage drops against the base branch.
-- Add `scripts/gen-cargo-patches.sh` to regenerate `.cargo/config.toml`'s `[patch.crates-io]` block from the ROS 2 message crates `talos-agent` actually depends on (transitively), instead of hand-maintaining the list.
 
 ### Changed
 
@@ -33,6 +32,28 @@ those entries into the versioned section when a release is created.
   shared `protocol::codec::{to_vec, from_slice}` helpers. (crates.io lists
   a `bincode` 3.0.0, but it is an empty placeholder release; 2.x is the
   current real release line.)
+- Upgrade the ROS 2 environment from Kilted to Lyrical Luth and stop building
+  `rclrs` from source. `rosidl_runtime_rs` now comes from crates.io, and the
+  `robostack-lyrical` conda packages provide the ROS 2 runtime plus
+  pre-generated Rust message bindings. `talos-agent` takes its message types
+  from `ros-env`, which compiles those bindings against `rosidl_runtime_rs` 0.7
+  and so picks up the Lyrical `Sequence<T>` ABI fix
+  ([ros2-rust/ros2_rust#659](https://github.com/ros2-rust/ros2_rust/issues/659)).
+  `rclrs` moves to 0.8 (the first crates.io release with Lyrical support) and
+  `ros-env` to 0.3.
+- Move the Pixi manifest to the repository root (from `rclrs_ws/`) and slim it to
+  `ros-lyrical-ros-base` + the Rust toolchain. Removed the `rclrs_ws` colcon /
+  vcstool source-build workspace and its `setup.bash` step; building now only
+  needs `pixi install` then `cargo build`.
+- Add `osx-arm64` to the Pixi platforms, so the agent can be built and checked
+  on Apple Silicon workstations alongside `linux-64` / `linux-aarch64`.
+
+> Known issue on Lyrical: the `DynamicMessage` fallback in `rclrs` still panics
+> on primitive or string sequence fields (e.g. `sensor_msgs/PointCloud2`).
+> Topics with a compiled-in converter and the parameter services are unaffected.
+> Fix proposed upstream in
+> [ros2-rust/ros2_rust#714](https://github.com/ros2-rust/ros2_rust/pull/714); the
+> affected `talos-agent` test is ignored until it ships.
 
 ## [0.2.0] - 2026-06-10
 

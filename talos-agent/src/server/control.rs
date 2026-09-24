@@ -1,3 +1,4 @@
+use ros_env::sensor_msgs;
 use talos_common::config::AgentConfig;
 use talos_common::protocol::messages::Response;
 use talos_common::protocol::types::PoseInfo;
