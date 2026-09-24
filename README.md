@@ -16,7 +16,9 @@ developer machine without a ROS 2 installation.
 
 ## Documentation
 
-The canonical documentation lives in the mdBook under [`docs/`](docs/src/introduction.md).
+The canonical documentation is the Talos book, published at
+<https://rosterloh.github.io/talos/> from `main`. Its source lives under
+[`docs/`](docs/src/introduction.md).
 
 ```bash
 mdbook serve docs

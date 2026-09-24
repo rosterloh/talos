@@ -54,6 +54,10 @@ those entries into the versioned section when a release is created.
 
 ### Changed
 
+- The README now links to the published book at
+  <https://rosterloh.github.io/talos/>. The roadmap no longer lists
+  publishing to GitHub Pages as future work, since the Docs workflow already
+  deploys from `main`.
 - Protect `dev` from deletion with a repository ruleset, so the automatic
   head-branch cleanup no longer deletes it when a `dev` -> `main` release pull
   request merges.

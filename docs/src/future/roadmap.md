@@ -8,7 +8,6 @@ issue tracker.
 - Keep this mdBook as the canonical project documentation.
 - Improve examples for agent configuration and common ROS 2 setups.
 - Add more integration coverage for UDS and QUIC client behavior.
-- Publish the mdBook from `main` with GitHub Pages.
 
 ## Protocol And Transport
 
