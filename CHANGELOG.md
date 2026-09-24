@@ -9,6 +9,15 @@ those entries into the versioned section when a release is created.
 
 ### Added
 
+- The CLI has a global `--json` flag. `list-topics`, `list-nodes`,
+  `list-params` and `get-param` print a JSON array, and `echo` prints one
+  `{topic, stamp, data}` object per line, with message data as plain JSON
+  (byte arrays as base64, NaN/inf as `null`). `set-param` ignores the flag.
+
+- New `talos-cli hz <topic> [--duration <s>]` prints the agent-measured rate,
+  bandwidth and latency of a topic once a second, or a JSON object per second
+  with `--json`.
+
 - The topic detail pane in the TUI now lists each publisher and subscriber on
   the selected topic, with its reliability, durability, history and deadline,
   from a new `GetTopicEndpoints` agent request. Subscribers that can never

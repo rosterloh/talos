@@ -5,6 +5,7 @@ pub async fn run<C: ProtocolClient>(
     client: &mut C,
     topic: String,
     count: usize,
+    json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match client.subscribe(std::slice::from_ref(&topic)).await {
         Ok(subs) if subs.is_empty() => {
@@ -23,8 +24,17 @@ pub async fn run<C: ProtocolClient>(
     loop {
         let (recv_topic, frame) = client.recv_data().await?;
         if recv_topic == topic {
-            print_dynvalue(&frame.data, 0);
-            println!("---");
+            if json {
+                let line = serde_json::json!({
+                    "topic": recv_topic,
+                    "stamp": frame.stamp,
+                    "data": crate::json::dynvalue(&frame.data),
+                });
+                println!("{line}");
+            } else {
+                print_dynvalue(&frame.data, 0);
+                println!("---");
+            }
             received += 1;
             if count > 0 && received >= count {
                 break;
