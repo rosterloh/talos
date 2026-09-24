@@ -54,8 +54,17 @@ jobs:
         run: cargo test -p talos-common -p talos-cli -p talos-tui --features quic
 
   agent:
-    name: Build and test talos-agent (ROS 2 Lyrical)
-    runs-on: ubuntu-latest
+    name: Build and test talos-agent (ROS 2 Lyrical, ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          # The robot target; native Arm runner, not emulation.
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout

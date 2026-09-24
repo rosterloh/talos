@@ -57,6 +57,9 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --features quic -- -D warnings
 ```
 
+The `talos-agent` job builds and tests inside the Pixi ROS 2 environment on both
+x86-64 and aarch64 Linux runners.
+
 ## Coverage
 
 The Coverage workflow reports LCOV output for the non-ROS crates
