@@ -317,3 +317,72 @@ fn subscription_badge(topic: &crate::state::TopicData) -> (&'static str, Style) 
         TopicSubscriptionState::Error => ("[ERR]", Style::default().fg(Color::Red)),
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use talos_common::protocol::messages::Response;
+    use talos_common::protocol::types::{TopicInfo, TopicStats};
+
+    use super::*;
+
+    /// Draw the Topics tab into a test buffer and return it as text rows.
+    pub(crate) fn render(state: &AppState) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(140, 30)).unwrap();
+        terminal.draw(|f| draw(f, state, f.area())).unwrap();
+        let buffer = terminal.backend().buffer();
+        buffer
+            .content()
+            .chunks(buffer.area.width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub(crate) fn state_with_topic(name: &str) -> AppState {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![TopicInfo {
+            name: name.into(),
+            type_name: "sensor_msgs/msg/LaserScan".into(),
+            publisher_count: 1,
+            subscriber_count: 0,
+        }]));
+        state
+    }
+
+    #[test]
+    fn agent_stats_render_in_list_and_detail() {
+        let mut state = state_with_topic("/scan");
+        for rate_hz in [9.6, 10.2] {
+            state.handle_topic_stats(vec![TopicStats {
+                topic: "/scan".into(),
+                rate_hz,
+                bandwidth_bps: 2048.0,
+                latency_ms: Some(3.5),
+            }]);
+        }
+
+        let screen = render(&state);
+        assert!(screen.contains("/scan     10Hz"), "{screen}");
+        assert!(
+            screen.contains("Agent: 10.2 Hz  2.0 KB/s  latency 3.5 ms"),
+            "{screen}"
+        );
+        assert!(screen.contains(" rate, last 2s "), "{screen}");
+    }
+
+    #[test]
+    fn topic_without_stats_renders_placeholder_rate() {
+        let screen = render(&state_with_topic("/scan"));
+        assert!(screen.contains("/scan    -"), "{screen}");
+        assert!(!screen.contains("Agent:"), "{screen}");
+    }
+
+    #[test]
+    fn bandwidth_is_formatted_with_units() {
+        assert_eq!(format_bandwidth(512.0), "512 B/s");
+        assert_eq!(format_bandwidth(1536.0), "1.5 KB/s");
+        assert_eq!(format_bandwidth(3.0 * 1024.0 * 1024.0), "3.0 MB/s");
+    }
+}

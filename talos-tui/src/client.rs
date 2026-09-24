@@ -472,6 +472,29 @@ mod tests {
         );
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn topic_stats_are_polled_every_second() {
+        let state = Arc::new(Mutex::new(AppState::default()));
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        let client = FakeClient::new(sample_topics());
+
+        let session = {
+            let (client, state) = (client.clone(), Arc::clone(&state));
+            tokio::spawn(async move { connect_and_run(client, &state, &mut cmd_rx).await })
+        };
+        // Paused time jumps straight to each tick while the session idles.
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        drop(cmd_tx);
+        session.await.unwrap().expect("session ends cleanly");
+
+        let polls = client
+            .request_calls()
+            .iter()
+            .filter(|r| matches!(r, Request::GetTopicStats))
+            .count();
+        assert_eq!(polls, 2);
+    }
+
     #[tokio::test]
     async fn manual_unsubscribe_uses_protocol_helper() {
         let state = Arc::new(Mutex::new(AppState::default()));

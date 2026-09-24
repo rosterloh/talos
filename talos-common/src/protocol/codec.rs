@@ -116,3 +116,32 @@ impl<T: Serialize> Encoder<T> for BincodeCodec<T> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bytes::{BufMut, BytesMut};
+    use tokio_util::codec::Decoder;
+
+    use super::*;
+
+    fn framed(len: usize) -> BytesMut {
+        let mut buf = BytesMut::with_capacity(4 + len);
+        buf.put_u32(len as u32);
+        buf.put_bytes(0, len);
+        buf
+    }
+
+    /// The QUIC data streams decode with this codec. Its limit must match
+    /// `MAX_FRAME_SIZE`, not `LengthDelimitedCodec`'s 8 MiB default, or topic
+    /// streams die on large messages.
+    #[test]
+    fn frame_codec_uses_the_protocol_frame_limit() {
+        let mut codec = frame_codec();
+        let frame = codec
+            .decode(&mut framed(10 * 1024 * 1024))
+            .unwrap()
+            .unwrap();
+        assert_eq!(frame.len(), 10 * 1024 * 1024);
+        assert!(codec.decode(&mut framed(MAX_FRAME_SIZE + 1)).is_err());
+    }
+}
