@@ -42,11 +42,17 @@ those entries into the versioned section when a release is created.
   `rclrs` moves to 0.8 (the first crates.io release with Lyrical support) and
   `ros-env` to 0.3.
 - Move the Pixi manifest to the repository root (from `rclrs_ws/`) and slim it to
-  `ros-lyrical-ros-base` + the Rust toolchain. Removed the `rclrs_ws` colcon /
+  `ros2-ros-base` + the Rust toolchain. Removed the `rclrs_ws` colcon /
   vcstool source-build workspace and its `setup.bash` step; building now only
   needs `pixi install` then `cargo build`.
 - Add `osx-arm64` to the Pixi platforms, so the agent can be built and checked
   on Apple Silicon workstations alongside `linux-64` / `linux-aarch64`.
+- Follow RoboStack's package rename from `ros-lyrical-*` to `ros2-*`
+  ([RoboStack/vinca#104](https://github.com/RoboStack/vinca/pull/104)): depend
+  on `ros2-ros-base` and pin `ros2-distro-mutex` to a `lyrical` build, so the
+  distro stays explicit once the legacy aliases are dropped. Refresh
+  `pixi.lock` (`ros2-rclcpp` 32.0.3, `ros2-sensor-msgs` 5.9.3,
+  `ros2-rosidl-generator-rs` 0.5.0).
 
 > Known issue on Lyrical: the `DynamicMessage` fallback in `rclrs` still panics
 > on primitive or string sequence fields (e.g. `sensor_msgs/PointCloud2`).
