@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use talos_common::protocol::messages::Response;
-use talos_common::protocol::types::{NodeInfo, ParamInfo, PoseInfo};
+use talos_common::protocol::types::{EndpointInfo, NodeInfo, ParamInfo, PoseInfo};
 
 mod joints;
 mod logs;
@@ -113,6 +113,15 @@ pub struct AppState {
     pub param_status: Option<String>,
     /// A load or set was sent and its first reply should update `param_status`.
     pub param_awaiting_reply: bool,
+    /// Endpoints of the selected topic, from the last `GetTopicEndpoints`.
+    pub topic_endpoints: Option<TopicEndpoints>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TopicEndpoints {
+    pub topic: String,
+    pub publishers: Vec<EndpointInfo>,
+    pub subscribers: Vec<EndpointInfo>,
 }
 
 impl Default for AppState {
@@ -155,6 +164,7 @@ impl Default for AppState {
             param_input: String::new(),
             param_status: None,
             param_awaiting_reply: false,
+            topic_endpoints: None,
         }
     }
 }
@@ -166,6 +176,27 @@ impl AppState {
         match response {
             Response::Ok(_) => {}
             Response::Error(e) => self.joint_status = Some(format!("error: {e}")),
+            other => self.handle_response(other),
+        }
+    }
+
+    /// Topic whose endpoints should be fetched: the one selected on the
+    /// Topics tab.
+    pub fn endpoint_query_topic(&self) -> Option<String> {
+        (self.active_tab == Tab::Topics)
+            .then(|| self.topic_names.get(self.topic_selected).cloned())
+            .flatten()
+    }
+
+    /// Reply to `GetTopicEndpoints`. A failed graph query only clears the
+    /// endpoint view; it must not reach `handle_response`, where an `Error`
+    /// would be taken as the reply to a pending parameter request.
+    pub fn handle_endpoints_response(&mut self, response: Response) {
+        match response {
+            Response::Error(e) => {
+                self.topic_endpoints = None;
+                tracing::warn!("failed to list topic endpoints: {e}");
+            }
             other => self.handle_response(other),
         }
     }
@@ -196,6 +227,17 @@ impl AppState {
             Response::Unsubscribed { topics } => self.handle_unsubscribed_topics(topics),
             Response::Ok(_) => {}
             Response::TopicStats(stats) => self.handle_topic_stats(stats),
+            Response::TopicEndpoints {
+                topic,
+                publishers,
+                subscribers,
+            } => {
+                self.topic_endpoints = Some(TopicEndpoints {
+                    topic,
+                    publishers,
+                    subscribers,
+                });
+            }
             Response::Error(e) => {
                 if std::mem::take(&mut self.param_awaiting_reply) {
                     self.param_status = Some(format!("error: {e}"));

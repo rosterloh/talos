@@ -106,6 +106,96 @@ pub struct TopicStats {
     pub latency_ms: Option<f64>,
 }
 
+/// A publisher or subscription on a topic, with the QoS it offers (publisher)
+/// or requests (subscription).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EndpointInfo {
+    pub node_name: String,
+    pub node_namespace: String,
+    pub topic_type: String,
+    pub qos: QosInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QosInfo {
+    pub reliability: Reliability,
+    pub durability: Durability,
+    pub history: History,
+    /// `None` means no deadline (infinite or system default).
+    pub deadline_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Reliability {
+    SystemDefault,
+    Reliable,
+    BestEffort,
+    BestAvailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Durability {
+    SystemDefault,
+    TransientLocal,
+    Volatile,
+    BestAvailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum History {
+    SystemDefault { depth: u32 },
+    KeepLast { depth: u32 },
+    KeepAll,
+}
+
+impl QosInfo {
+    /// Why a publisher offering `self` can't be matched with a subscription
+    /// requesting `sub`, following the ROS 2 QoS compatibility rules. `None`
+    /// if they are compatible, or if a policy is left to the system default
+    /// or best-available so it can't be judged here.
+    pub fn incompatibility_with(&self, sub: &QosInfo) -> Option<&'static str> {
+        if self.reliability == Reliability::BestEffort && sub.reliability == Reliability::Reliable {
+            return Some("best-effort publisher, reliable subscriber");
+        }
+        if self.durability == Durability::Volatile && sub.durability == Durability::TransientLocal {
+            return Some("volatile publisher, transient-local subscriber");
+        }
+        if let Some(requested) = sub.deadline_ms
+            && self.deadline_ms.is_none_or(|offered| offered > requested)
+        {
+            return Some("publisher deadline longer than subscriber's");
+        }
+        None
+    }
+}
+
+impl std::fmt::Display for QosInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let reliability = match self.reliability {
+            Reliability::SystemDefault => "default",
+            Reliability::Reliable => "reliable",
+            Reliability::BestEffort => "best_effort",
+            Reliability::BestAvailable => "best_available",
+        };
+        let durability = match self.durability {
+            Durability::SystemDefault => "default",
+            Durability::TransientLocal => "transient_local",
+            Durability::Volatile => "volatile",
+            Durability::BestAvailable => "best_available",
+        };
+        write!(f, "{reliability} {durability} ")?;
+        match self.history {
+            History::SystemDefault { depth } => write!(f, "default({depth})")?,
+            History::KeepLast { depth } => write!(f, "keep_last({depth})")?,
+            History::KeepAll => write!(f, "keep_all")?,
+        }
+        if let Some(ms) = self.deadline_ms {
+            write!(f, " deadline {ms}ms")?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PoseInfo {
     pub name: String,

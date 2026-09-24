@@ -4,7 +4,7 @@ use talos_common::protocol::types::TopicSub;
 
 use super::RouterHandle;
 use super::control::{configured_poses, execute_pose, set_joint_position};
-use super::graph::{list_nodes, list_topics};
+use super::graph::{list_nodes, list_topics, topic_endpoints};
 use super::parameters::{get_parameters, list_parameters, set_parameter};
 use crate::router::ClientId;
 use crate::{GraphHandle, JointPublisher};
@@ -59,6 +59,7 @@ pub(super) async fn handle_control_request(
 ) -> Response {
     match request {
         Request::GetTopicStats => Response::TopicStats(router.lock().await.topic_stats()),
+        Request::GetTopicEndpoints { topic } => topic_endpoints(topic, graph_handle).await,
         Request::ListTopics => list_topics(config, graph_handle).await,
         Request::ListNodes => list_nodes(graph_handle).await,
         Request::ListPoses => Response::PoseList(configured_poses(config)),

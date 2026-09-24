@@ -39,6 +39,22 @@ should generally use `sensor_data` QoS. A reliable publisher (e.g. a nav stack
 node) is compatible with a best-effort subscriber, so `sensor_data` is safe to
 use even when the publisher uses reliable QoS.
 
+## Endpoint QoS
+
+When a topic delivers no data, the cause is usually a QoS mismatch. The topic
+detail pane lists every publisher and subscription on the selected topic
+(including the agent's own) with its QoS, from the agent's
+`GetTopicEndpoints` query. A subscriber that can't match a publisher gets a
+red warning. These pairs are flagged, following the ROS 2 compatibility rules:
+
+- a best-effort publisher with a reliable subscriber;
+- a volatile publisher with a transient-local subscriber;
+- a publisher deadline longer than the subscriber's.
+
+A frequent case is a sensor publishing best-effort while the agent's
+subscription uses the `default` (reliable) profile. Setting
+`qos = "sensor_data"` on that subscription fixes it.
+
 ## Rates
 
 The agent measures every bridged topic, whether or not any client is

@@ -4,8 +4,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Sparkline};
 
-use crate::state::{AppState, Pane, TopicSubscriptionState};
-use talos_common::protocol::types::DynValue;
+use crate::state::{AppState, Pane, TopicEndpoints, TopicSubscriptionState};
+use talos_common::protocol::types::{DynValue, EndpointInfo};
 
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
     let chunks = Layout::default()
@@ -130,6 +130,13 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
                 )),
             ]));
         }
+        if let Some(endpoints) = state
+            .topic_endpoints
+            .as_ref()
+            .filter(|e| e.topic == topic.info.name)
+        {
+            push_endpoint_lines(&mut lines, endpoints);
+        }
         let (_, subscription_style) = subscription_badge(topic);
         lines.push(Line::from(vec![
             Span::styled("Subscription: ", Style::default().fg(Color::DarkGray)),
@@ -188,6 +195,48 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
         .data(&history)
         .style(Style::default().fg(Color::Cyan));
     f.render_widget(sparkline, spark_area);
+}
+
+/// Publisher and subscriber QoS, with subscribers that can't be matched to a
+/// publisher flagged (the usual reason a topic delivers no data).
+fn push_endpoint_lines(lines: &mut Vec<Line<'static>>, endpoints: &TopicEndpoints) {
+    let label = |e: &EndpointInfo| {
+        if e.node_namespace.is_empty() || e.node_namespace == "/" {
+            format!("/{}", e.node_name)
+        } else {
+            format!("{}/{}", e.node_namespace.trim_end_matches('/'), e.node_name)
+        }
+    };
+    let dim = Style::default().fg(Color::DarkGray);
+
+    lines.push(Line::from(Span::styled(
+        format!("Publishers ({}):", endpoints.publishers.len()),
+        dim,
+    )));
+    for publisher in &endpoints.publishers {
+        lines.push(Line::from(vec![
+            Span::raw(format!("  {}  ", label(publisher))),
+            Span::styled(publisher.qos.to_string(), dim),
+        ]));
+    }
+    lines.push(Line::from(Span::styled(
+        format!("Subscribers ({}):", endpoints.subscribers.len()),
+        dim,
+    )));
+    for subscriber in &endpoints.subscribers {
+        lines.push(Line::from(vec![
+            Span::raw(format!("  {}  ", label(subscriber))),
+            Span::styled(subscriber.qos.to_string(), dim),
+        ]));
+        for publisher in &endpoints.publishers {
+            if let Some(reason) = publisher.qos.incompatibility_with(&subscriber.qos) {
+                lines.push(Line::from(Span::styled(
+                    format!("    ⚠ no match with {}: {reason}", label(publisher)),
+                    Style::default().fg(Color::Red),
+                )));
+            }
+        }
+    }
 }
 
 fn format_bandwidth(bytes_per_sec: f64) -> String {

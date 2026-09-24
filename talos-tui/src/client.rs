@@ -170,7 +170,18 @@ async fn connect_and_run<C: ProtocolClient>(
                     .request(Request::GetTopicStats)
                     .await
                     .map_err(|e| e.to_string())?;
-                state.lock().unwrap().handle_response(response);
+                let endpoint_topic = {
+                    let mut s = state.lock().unwrap();
+                    s.handle_response(response);
+                    s.endpoint_query_topic()
+                };
+                if let Some(topic) = endpoint_topic {
+                    let response = client
+                        .request(Request::GetTopicEndpoints { topic })
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    state.lock().unwrap().handle_endpoints_response(response);
+                }
             }
             data_result = client.recv_data() => {
                 match data_result {
