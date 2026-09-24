@@ -1,4 +1,5 @@
 mod commands;
+mod json;
 
 use std::process;
 
@@ -23,6 +24,10 @@ struct Cli {
     #[arg(long, global = true)]
     remote: Option<String>,
 
+    /// Print machine-readable JSON (ignored by set-param)
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -40,6 +45,14 @@ enum Command {
         /// Number of messages to print (0 = unlimited)
         #[arg(short, long, default_value_t = 0)]
         count: usize,
+    },
+    /// Show a topic's rate, bandwidth and latency as measured by the agent
+    Hz {
+        /// Topic name
+        topic: String,
+        /// Exit after this many seconds (default: run until interrupted)
+        #[arg(short, long)]
+        duration: Option<u64>,
     },
     /// List a node's parameters with their current values
     ListParams {
@@ -86,7 +99,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "quic")]
     if let Some(ref addr) = cli.remote {
         let client = talos_common::session::QuicProtocolClient::connect(addr).await?;
-        return run_with_client(client, cli.command).await;
+        return run_with_client(client, cli.command, cli.json).await;
     }
 
     #[cfg(not(feature = "quic"))]
@@ -95,20 +108,26 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let client = UdsProtocolClient::connect(&cli.socket).await?;
-    run_with_client(client, cli.command).await
+    run_with_client(client, cli.command, cli.json).await
 }
 
 async fn run_with_client<C: ProtocolClient>(
     mut client: C,
     command: Command,
+    json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
-        Command::ListTopics => commands::topics::list(&mut client).await?,
-        Command::ListNodes => commands::nodes::list(&mut client).await?,
-        Command::Echo { topic, count } => commands::echo::run(&mut client, topic, count).await?,
-        Command::ListParams { node } => commands::parameters::list(&mut client, node).await?,
+        Command::ListTopics => commands::topics::list(&mut client, json).await?,
+        Command::ListNodes => commands::nodes::list(&mut client, json).await?,
+        Command::Echo { topic, count } => {
+            commands::echo::run(&mut client, topic, count, json).await?
+        }
+        Command::Hz { topic, duration } => {
+            commands::hz::run(&mut client, topic, duration, json).await?
+        }
+        Command::ListParams { node } => commands::parameters::list(&mut client, node, json).await?,
         Command::GetParam { node, names } => {
-            commands::parameters::get(&mut client, node, names).await?
+            commands::parameters::get(&mut client, node, names, json).await?
         }
         Command::SetParam { node, name, value } => {
             commands::parameters::set(&mut client, node, name, value).await?
@@ -162,6 +181,7 @@ mod tests {
         let err = run_with_client(
             FakeClient::with_response(Response::Error("boom".into())),
             Command::ListTopics,
+            false,
         )
         .await
         .expect_err("list topics error response should fail");
@@ -174,6 +194,7 @@ mod tests {
         let err = run_with_client(
             FakeClient::with_response(Response::Error("missing graph".into())),
             Command::ListNodes,
+            false,
         )
         .await
         .expect_err("list nodes error response should fail");
