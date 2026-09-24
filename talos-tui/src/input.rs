@@ -198,21 +198,18 @@ fn handle_joint_input_submit(state: &mut AppState, cmd_tx: &mpsc::UnboundedSende
     };
 
     if let Some(joint) = state.joints.get(state.joint_selected) {
-        let clamped = if let Some(ref limits) = joint.info.limits {
-            if value < limits.lower {
-                state.joint_input_error =
-                    Some(format!("clamped to lower limit {:.4}", limits.lower));
-                limits.lower
-            } else if value > limits.upper {
-                state.joint_input_error =
-                    Some(format!("clamped to upper limit {:.4}", limits.upper));
-                limits.upper
-            } else {
-                value
-            }
-        } else {
-            value
+        let (clamped, note) = match joint.info.limits {
+            Some(ref limits) if value < limits.lower => (
+                limits.lower,
+                format!(" (clamped to lower limit {:.4})", limits.lower),
+            ),
+            Some(ref limits) if value > limits.upper => (
+                limits.upper,
+                format!(" (clamped to upper limit {:.4})", limits.upper),
+            ),
+            _ => (value, String::new()),
         };
+        state.joint_status = Some(format!("sent {} = {clamped:.4}{note}", joint.info.name));
 
         let _ = cmd_tx.send(Request::SetJointPosition {
             joint: joint.info.name.clone(),
@@ -229,6 +226,7 @@ fn handle_pose_confirm(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Requ
         let _ = cmd_tx.send(Request::ExecutePose {
             name: pose.name.clone(),
         });
+        state.joint_status = Some(format!("sent pose '{}'", pose.name));
     }
     state.pose_confirming = false;
 }
@@ -372,6 +370,7 @@ fn cycle_log_severity_filter(state: &mut AppState) {
         .position(|l| *l == state.log_severity_filter)
         .unwrap_or(0);
     state.log_severity_filter = levels[(idx + 1) % levels.len()];
+    state.clamp_log_selection();
 }
 
 #[cfg(test)]
@@ -381,6 +380,51 @@ mod tests {
     use crossterm::event::KeyModifiers;
     use talos_common::protocol::messages::Response;
     use talos_common::protocol::types::{TopicInfo, TopicSub};
+
+    #[test]
+    fn clamped_joint_command_reports_clamp_until_agent_error() {
+        use crate::state::JointData;
+        use talos_common::protocol::types::{JointInfo, JointLimits, JointType};
+
+        let mut state = AppState::default();
+        state.joints.push(JointData {
+            info: JointInfo {
+                name: "elbow".into(),
+                joint_type: JointType::Revolute,
+                parent_link: "a".into(),
+                child_link: "b".into(),
+                limits: Some(JointLimits {
+                    lower: -1.0,
+                    upper: 1.0,
+                    effort: 0.0,
+                    velocity: 0.0,
+                }),
+            },
+            position: None,
+            velocity: None,
+            effort: None,
+        });
+        state.joint_input = "5".into();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        handle_joint_input_submit(&mut state, &tx);
+
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Request::SetJointPosition { position, .. }) if position == 1.0
+        ));
+        let status = state.joint_status.clone().unwrap();
+        assert!(status.contains("clamped to upper limit"), "{status}");
+
+        state.handle_joint_command_response(Response::Ok("joint command published".into()));
+        assert_eq!(state.joint_status.as_deref(), Some(status.as_str()));
+
+        state.handle_joint_command_response(Response::Error("joint publisher not ready".into()));
+        assert_eq!(
+            state.joint_status.as_deref(),
+            Some("error: joint publisher not ready")
+        );
+        assert_eq!(state.param_status, None);
+    }
 
     fn topic(name: &str, type_name: &str) -> TopicInfo {
         TopicInfo {

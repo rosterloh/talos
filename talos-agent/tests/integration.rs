@@ -689,3 +689,74 @@ async fn uds_oversized_frame_is_dropped_without_disconnecting() {
     assert_eq!(topic, "/odom");
     assert_eq!(frame.data, DynValue::Bool(true));
 }
+
+/// A topic stream the client isn't reading (QUIC flow control is exhausted)
+/// must not stall the control stream for that client.
+#[cfg(feature = "quic")]
+#[tokio::test]
+async fn quic_stalled_topic_stream_does_not_block_control() {
+    use futures_util::{SinkExt, StreamExt};
+    use talos_common::config::QuicTransportConfig;
+    use talos_common::protocol::codec::BincodeCodec;
+    use talos_common::transport::quic::QuicTransport;
+    use tokio_util::codec::{FramedRead, FramedWrite};
+
+    let mut config = (*test_config_uds("/unused.sock")).clone();
+    config.transport.uds = None;
+    config.transport.quic = Some(QuicTransportConfig {
+        bind_addr: "127.0.0.1:0".to_string(),
+        cert_path: None,
+        key_path: None,
+    });
+    let config = Arc::new(config);
+    let router = make_router();
+    let endpoint = QuicTransport::bind(config.transport.quic.as_ref().unwrap())
+        .await
+        .unwrap();
+    let addr = endpoint.local_addr().unwrap();
+    {
+        let r = Arc::clone(&router);
+        let cfg = Arc::clone(&config);
+        tokio::spawn(async move {
+            if let Some(inc) = endpoint.accept().await
+                && let Ok(conn) = inc.await
+            {
+                talos_agent::server::handle_quic_client(
+                    conn,
+                    cfg,
+                    r,
+                    make_joint_publisher(),
+                    make_graph_handle(),
+                )
+                .await;
+            }
+        });
+    }
+
+    // Raw client that never accepts its data streams.
+    let conn = QuicTransport::connect(addr).await.unwrap();
+    let (send, recv) = conn.open_bi().await.unwrap();
+    let mut tx = FramedWrite::new(send, BincodeCodec::<Request>::new());
+    let mut rx = FramedRead::new(recv, BincodeCodec::<Response>::new());
+    tx.send(Request::Subscribe {
+        topics: vec!["/odom".into()],
+    })
+    .await
+    .unwrap();
+    assert!(matches!(
+        rx.next().await,
+        Some(Ok(Response::Subscribed { .. }))
+    ));
+
+    // Far more than the stream's flow-control window.
+    for _ in 0..32 {
+        inject_value(&router, "/odom", DynValue::Bytes(vec![0; 1024 * 1024]));
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    tx.send(Request::ListPoses).await.unwrap();
+    let reply = tokio::time::timeout(Duration::from_secs(2), rx.next())
+        .await
+        .expect("control stream blocked behind a stalled topic stream");
+    assert!(matches!(reply, Some(Ok(Response::PoseList(_)))));
+}

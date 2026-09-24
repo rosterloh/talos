@@ -213,6 +213,17 @@ fn draw_joint_detail(f: &mut Frame, state: &AppState, area: Rect) {
                     Style::default().fg(Color::Red),
                 )));
             }
+        } else if let Some(ref status) = state.joint_status {
+            let color = if status.starts_with("error") {
+                Color::Red
+            } else {
+                Color::Yellow
+            };
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                status.as_str(),
+                Style::default().fg(color),
+            )));
         }
 
         lines.push(Line::from(""));

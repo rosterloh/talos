@@ -18,6 +18,17 @@ pub struct TopicData {
 }
 
 impl TopicData {
+    /// The Hz estimate only updates on arrival, so treat it as zero once the
+    /// topic has been quiet for two expected periods (at least one second).
+    pub fn hz_at(&self, now: Instant) -> f64 {
+        match self.last_received {
+            Some(last) if now.duration_since(last).as_secs_f64() < (2.0 / self.hz).max(1.0) => {
+                self.hz
+            }
+            _ => 0.0,
+        }
+    }
+
     fn placeholder(name: &str) -> Self {
         Self {
             info: TopicInfo {
@@ -405,6 +416,19 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hz_goes_to_zero_when_topic_stops() {
+        let mut topic = TopicData::placeholder("/t");
+        let last = Instant::now();
+        topic.last_received = Some(last);
+        topic.hz = 10.0;
+        assert_eq!(
+            topic.hz_at(last + std::time::Duration::from_millis(500)),
+            10.0
+        );
+        assert_eq!(topic.hz_at(last + std::time::Duration::from_secs(2)), 0.0);
+    }
     use crate::state::AppState;
     use talos_common::protocol::messages::Response;
     use talos_common::protocol::types::{DynValue, Timestamp, TopicSub};

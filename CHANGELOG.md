@@ -33,6 +33,21 @@ those entries into the versioned section when a release is created.
   Log bindings that don't exist (`n`, `/`).
 - `talos echo` now exits with an error when the agent does not confirm the
   topic, instead of waiting forever.
+- `talos` no longer panics when its output pipe closes early (e.g.
+  `talos echo /x | head`). It now exits quietly, like other Unix tools.
+- The agent writes each QUIC topic stream from its own task. A stream stalled
+  by flow control now drops only its own frames and no longer blocks control
+  requests or other topics for that client.
+- The agent now refuses to start on a UDS socket that another agent is still
+  serving. Before, it deleted that agent's socket and took it over. A stale
+  socket file is still replaced.
+- TUI: a topic that stops publishing now shows 0 Hz instead of keeping its
+  last rate forever.
+- TUI: the log selection stays on the same entry as new `/rosout` messages
+  arrive, and is clamped when the severity filter shortens the list.
+- TUI: joint and pose commands now show their outcome on the Joints tab.
+  This includes agent errors and the "clamped to limit" note, which was never
+  displayed before.
 - The version bump workflow now also moves the `[workspace]` version in
   `pixi.toml`, which had been left at 0.1.5; it is set to 1.0.0 to match the
   release.
