@@ -96,14 +96,14 @@ fn draw_tab_bar(f: &mut Frame, state: &AppState, area: Rect) {
 fn draw_status_bar(f: &mut Frame, state: &AppState, area: Rect) {
     let hints = match state.active_tab {
         Tab::Topics => {
-            "↑↓ navigate  s toggle sub  Enter select  ←→ expand/collapse  Tab pane  q quit  ? help"
+            "↑↓ navigate  s toggle sub  Enter select  ←→ expand/collapse  Tab pane  r refresh  q quit  ? help"
         }
-        Tab::Nodes => "↑↓ navigate  Enter select  Tab pane  q quit  ? help",
-        Tab::Log => "↑↓ scroll  f filter severity  q quit  ? help",
+        Tab::Nodes => "↑↓ navigate  Enter select  Tab pane  r refresh  q quit  ? help",
+        Tab::Log => "↑↓ scroll  f filter severity  r refresh  q quit  ? help",
         Tab::Joints => {
-            "↑↓ navigate  j/o joints/poses  e edit joint  x execute pose  q quit  ? help"
+            "↑↓ navigate  j/o joints/poses  e edit joint  x execute pose  r refresh  q quit  ? help"
         }
-        Tab::Params => "↑↓ navigate  Tab pane  Enter load  e edit value  q quit  ? help",
+        Tab::Params => "↑↓ navigate  Tab pane  Enter load  e edit value  r refresh  q quit  ? help",
     };
 
     let bar = Paragraph::new(Line::from(vec![
