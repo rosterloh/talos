@@ -170,7 +170,18 @@ async fn connect_and_run<C: ProtocolClient>(
                     .request(Request::GetTopicStats)
                     .await
                     .map_err(|e| e.to_string())?;
-                state.lock().unwrap().handle_response(response);
+                let endpoint_topic = {
+                    let mut s = state.lock().unwrap();
+                    s.handle_response(response);
+                    s.endpoint_query_topic()
+                };
+                if let Some(topic) = endpoint_topic {
+                    let response = client
+                        .request(Request::GetTopicEndpoints { topic })
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    state.lock().unwrap().handle_endpoints_response(response);
+                }
             }
             data_result = client.recv_data() => {
                 match data_result {
@@ -354,6 +365,11 @@ mod tests {
                 }),
                 Request::Unsubscribe { topics } => Ok(Response::Unsubscribed { topics }),
                 Request::GetTopicStats => Ok(Response::TopicStats(vec![])),
+                Request::GetTopicEndpoints { topic } => Ok(Response::TopicEndpoints {
+                    topic,
+                    publishers: vec![],
+                    subscribers: vec![],
+                }),
                 _ => self
                     .request_responses
                     .lock()
@@ -469,6 +485,46 @@ mod tests {
         assert_eq!(
             second_client.subscribe_calls(),
             vec![vec!["/camera".to_string()]]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn topic_stats_and_selected_endpoints_are_polled_every_second() {
+        let state = Arc::new(Mutex::new(AppState::default()));
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        let client = FakeClient::new(sample_topics());
+
+        let session = {
+            let (client, state) = (client.clone(), Arc::clone(&state));
+            tokio::spawn(async move { connect_and_run(client, &state, &mut cmd_rx).await })
+        };
+        // Paused time jumps straight to each tick while the session idles.
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        drop(cmd_tx);
+        session.await.unwrap().expect("session ends cleanly");
+
+        let polls = client
+            .request_calls()
+            .iter()
+            .filter(|r| matches!(r, Request::GetTopicStats))
+            .count();
+        assert_eq!(polls, 2);
+        let selected = sample_topics()[0].name.clone();
+        assert!(
+            client
+                .request_calls()
+                .contains(&Request::GetTopicEndpoints {
+                    topic: selected.clone()
+                })
+        );
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .topic_endpoints
+                .as_ref()
+                .map(|e| &e.topic),
+            Some(&selected)
         );
     }
 

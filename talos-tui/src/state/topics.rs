@@ -430,6 +430,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn endpoints_are_queried_for_selected_topic_on_topics_tab() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![TopicInfo {
+            name: "/scan".into(),
+            type_name: "sensor_msgs/msg/LaserScan".into(),
+            publisher_count: 1,
+            subscriber_count: 0,
+        }]));
+        assert_eq!(state.endpoint_query_topic().as_deref(), Some("/scan"));
+
+        state.active_tab = crate::state::Tab::Nodes;
+        assert_eq!(state.endpoint_query_topic(), None);
+    }
+
+    #[test]
+    fn endpoint_query_error_clears_endpoints_without_touching_params() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicEndpoints {
+            topic: "/scan".into(),
+            publishers: vec![],
+            subscribers: vec![],
+        });
+        state.param_awaiting_reply = true;
+        state.handle_endpoints_response(Response::Error("graph query failed".into()));
+        assert!(state.topic_endpoints.is_none());
+        // Not mistaken for the reply to a pending parameter request.
+        assert!(state.param_awaiting_reply);
+    }
+
+    #[test]
     fn agent_stats_expire_when_they_stop_arriving() {
         let mut state = AppState::default();
         state.handle_response(Response::TopicList(vec![TopicInfo {

@@ -26,6 +26,7 @@ Clients send `Request` values:
 - `GetParameters { node, names }`
 - `SetParameter { node, name, value }`
 - `GetTopicStats`
+- `GetTopicEndpoints { topic }`
 
 ## Responses
 
@@ -42,6 +43,8 @@ The agent replies with `Response` values:
 - `Ok`
 - `Error`
 - `TopicStats` (list of `{ topic, rate_hz, bandwidth_bps, latency_ms }`)
+- `TopicEndpoints { topic, publishers, subscribers }`. Each endpoint has its
+  node, type and QoS (reliability, durability, history, deadline).
 
 UDS carries control responses and topic data on the same framed connection.
 Because that connection carries data for multiple topics, UDS topic frames keep

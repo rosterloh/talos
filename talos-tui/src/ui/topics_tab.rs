@@ -4,8 +4,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Sparkline};
 
-use crate::state::{AppState, Pane, TopicSubscriptionState};
-use talos_common::protocol::types::DynValue;
+use crate::state::{AppState, Pane, TopicEndpoints, TopicSubscriptionState};
+use talos_common::protocol::types::{DynValue, EndpointInfo};
 
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
     let chunks = Layout::default()
@@ -130,6 +130,13 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
                 )),
             ]));
         }
+        if let Some(endpoints) = state
+            .topic_endpoints
+            .as_ref()
+            .filter(|e| e.topic == topic.info.name)
+        {
+            push_endpoint_lines(&mut lines, endpoints);
+        }
         let (_, subscription_style) = subscription_badge(topic);
         lines.push(Line::from(vec![
             Span::styled("Subscription: ", Style::default().fg(Color::DarkGray)),
@@ -188,6 +195,48 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
         .data(&history)
         .style(Style::default().fg(Color::Cyan));
     f.render_widget(sparkline, spark_area);
+}
+
+/// Publisher and subscriber QoS, with subscribers that can't be matched to a
+/// publisher flagged (the usual reason a topic delivers no data).
+fn push_endpoint_lines(lines: &mut Vec<Line<'static>>, endpoints: &TopicEndpoints) {
+    let label = |e: &EndpointInfo| {
+        if e.node_namespace.is_empty() || e.node_namespace == "/" {
+            format!("/{}", e.node_name)
+        } else {
+            format!("{}/{}", e.node_namespace.trim_end_matches('/'), e.node_name)
+        }
+    };
+    let dim = Style::default().fg(Color::DarkGray);
+
+    lines.push(Line::from(Span::styled(
+        format!("Publishers ({}):", endpoints.publishers.len()),
+        dim,
+    )));
+    for publisher in &endpoints.publishers {
+        lines.push(Line::from(vec![
+            Span::raw(format!("  {}  ", label(publisher))),
+            Span::styled(publisher.qos.to_string(), dim),
+        ]));
+    }
+    lines.push(Line::from(Span::styled(
+        format!("Subscribers ({}):", endpoints.subscribers.len()),
+        dim,
+    )));
+    for subscriber in &endpoints.subscribers {
+        lines.push(Line::from(vec![
+            Span::raw(format!("  {}  ", label(subscriber))),
+            Span::styled(subscriber.qos.to_string(), dim),
+        ]));
+        for publisher in &endpoints.publishers {
+            if let Some(reason) = publisher.qos.incompatibility_with(&subscriber.qos) {
+                lines.push(Line::from(Span::styled(
+                    format!("    ⚠ no match with {}: {reason}", label(publisher)),
+                    Style::default().fg(Color::Red),
+                )));
+            }
+        }
+    }
 }
 
 fn format_bandwidth(bytes_per_sec: f64) -> String {
@@ -315,5 +364,124 @@ fn subscription_badge(topic: &crate::state::TopicData) -> (&'static str, Style) 
         TopicSubscriptionState::PendingSubscribe => ("[+..]", Style::default().fg(Color::Yellow)),
         TopicSubscriptionState::PendingUnsubscribe => ("[-..]", Style::default().fg(Color::Yellow)),
         TopicSubscriptionState::Error => ("[ERR]", Style::default().fg(Color::Red)),
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use talos_common::protocol::messages::Response;
+    use talos_common::protocol::types::{TopicInfo, TopicStats};
+
+    use super::*;
+
+    /// Draw the Topics tab into a test buffer and return it as text rows.
+    pub(crate) fn render(state: &AppState) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(140, 30)).unwrap();
+        terminal.draw(|f| draw(f, state, f.area())).unwrap();
+        let buffer = terminal.backend().buffer();
+        buffer
+            .content()
+            .chunks(buffer.area.width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub(crate) fn state_with_topic(name: &str) -> AppState {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![TopicInfo {
+            name: name.into(),
+            type_name: "sensor_msgs/msg/LaserScan".into(),
+            publisher_count: 1,
+            subscriber_count: 0,
+        }]));
+        state
+    }
+
+    #[test]
+    fn agent_stats_render_in_list_and_detail() {
+        let mut state = state_with_topic("/scan");
+        for rate_hz in [9.6, 10.2] {
+            state.handle_topic_stats(vec![TopicStats {
+                topic: "/scan".into(),
+                rate_hz,
+                bandwidth_bps: 2048.0,
+                latency_ms: Some(3.5),
+            }]);
+        }
+
+        let screen = render(&state);
+        assert!(screen.contains("/scan     10Hz"), "{screen}");
+        assert!(
+            screen.contains("Agent: 10.2 Hz  2.0 KB/s  latency 3.5 ms"),
+            "{screen}"
+        );
+        assert!(screen.contains(" rate, last 2s "), "{screen}");
+    }
+
+    #[test]
+    fn topic_without_stats_renders_placeholder_rate() {
+        let screen = render(&state_with_topic("/scan"));
+        assert!(screen.contains("/scan    -"), "{screen}");
+        assert!(!screen.contains("Agent:"), "{screen}");
+    }
+
+    #[test]
+    fn endpoints_render_with_incompatibility_warning() {
+        use talos_common::protocol::types::{
+            Durability, EndpointInfo, History, QosInfo, Reliability,
+        };
+        let endpoint = |node: &str, reliability| EndpointInfo {
+            node_name: node.into(),
+            node_namespace: "/".into(),
+            topic_type: "sensor_msgs/msg/LaserScan".into(),
+            qos: QosInfo {
+                reliability,
+                durability: Durability::Volatile,
+                history: History::KeepLast { depth: 5 },
+                deadline_ms: None,
+            },
+        };
+        let mut state = state_with_topic("/scan");
+        state.handle_response(Response::TopicEndpoints {
+            topic: "/scan".into(),
+            publishers: vec![endpoint("lidar", Reliability::BestEffort)],
+            subscribers: vec![endpoint("talos_agent", Reliability::Reliable)],
+        });
+
+        let screen = render(&state);
+        assert!(screen.contains("Publishers (1):"), "{screen}");
+        assert!(
+            screen.contains("/lidar  best_effort volatile keep_last(5)"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("/talos_agent  reliable volatile keep_last(5)"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("⚠ no match with /lidar: best-effort publisher, reliable subscriber"),
+            "{screen}"
+        );
+    }
+
+    #[test]
+    fn endpoints_for_another_topic_are_not_shown() {
+        let mut state = state_with_topic("/scan");
+        state.handle_response(Response::TopicEndpoints {
+            topic: "/other".into(),
+            publishers: vec![],
+            subscribers: vec![],
+        });
+        assert!(!render(&state).contains("Publishers"));
+    }
+
+    #[test]
+    fn bandwidth_is_formatted_with_units() {
+        assert_eq!(format_bandwidth(512.0), "512 B/s");
+        assert_eq!(format_bandwidth(1536.0), "1.5 KB/s");
+        assert_eq!(format_bandwidth(3.0 * 1024.0 * 1024.0), "3.0 MB/s");
     }
 }

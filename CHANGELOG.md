@@ -9,6 +9,13 @@ those entries into the versioned section when a release is created.
 
 ### Added
 
+- The topic detail pane in the TUI now lists each publisher and subscriber on
+  the selected topic, with its reliability, durability, history and deadline,
+  from a new `GetTopicEndpoints` agent request. Subscribers that can never
+  match a publisher are flagged in red, e.g. a best-effort publisher with a
+  reliable subscriber. Such a mismatch is the usual reason a topic shows no
+  data.
+
 - The agent now measures rate, bandwidth and header-stamp latency for every
   bridged topic, before any per-client frame dropping, and serves them through
   a new `GetTopicStats` request. The TUI polls it every second and shows the

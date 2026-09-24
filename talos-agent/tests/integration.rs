@@ -792,3 +792,81 @@ async fn uds_get_topic_stats_reports_agent_side_rate() {
         other => panic!("unexpected response: {other:?}"),
     }
 }
+
+/// Endpoint QoS comes from the live ROS graph, and a best-effort publisher
+/// paired with a reliable subscriber is flagged as incompatible.
+#[tokio::test]
+async fn uds_topic_endpoints_report_live_qos() {
+    use rclrs::{CreateBasicExecutor, IntoPrimitiveOptions};
+    use ros_env::std_msgs;
+    use talos_common::protocol::types::Reliability;
+
+    const TOPIC: &str = "/talos_qos_probe";
+
+    let (node_tx, node_rx) = std::sync::mpsc::channel::<rclrs::Node>();
+    std::thread::spawn(move || {
+        let context = rclrs::Context::default_from_env().expect("rclrs context");
+        let mut executor = context.create_basic_executor();
+        let node = executor.create_node("talos_qos_test").expect("create node");
+        let _publisher = node
+            .create_publisher::<std_msgs::msg::String>(TOPIC.sensor_data_qos())
+            .expect("publisher");
+        let _subscription = node
+            .create_subscription::<std_msgs::msg::String, _>(
+                TOPIC.reliable(),
+                |_msg: std_msgs::msg::String| {},
+            )
+            .expect("subscription");
+        node_tx.send(Arc::clone(&node)).expect("send node handle");
+        executor.spin(rclrs::SpinOptions::default());
+    });
+    let node = node_rx.recv().expect("receive node handle");
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("qos.sock").to_string_lossy().into_owned();
+    let graph: GraphHandle = Arc::new(Mutex::new(Some(node)));
+    let config = test_config_uds(&path);
+    tokio::spawn(async move {
+        let _ =
+            talos_agent::server::run(config, make_router(), make_joint_publisher(), graph).await;
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+
+    // Graph discovery is asynchronous; poll until both endpoints show up.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let (publishers, subscribers) = loop {
+        let response = client
+            .request(Request::GetTopicEndpoints {
+                topic: TOPIC.into(),
+            })
+            .await
+            .unwrap();
+        if let Response::TopicEndpoints {
+            publishers,
+            subscribers,
+            ..
+        } = response
+            && !publishers.is_empty()
+            && !subscribers.is_empty()
+        {
+            break (publishers, subscribers);
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "endpoints never appeared"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+
+    assert_eq!(publishers[0].node_name, "talos_qos_test");
+    assert_eq!(publishers[0].topic_type, "std_msgs/msg/String");
+    assert_eq!(publishers[0].qos.reliability, Reliability::BestEffort);
+    assert_eq!(subscribers[0].qos.reliability, Reliability::Reliable);
+    assert!(
+        publishers[0]
+            .qos
+            .incompatibility_with(&subscribers[0].qos)
+            .is_some()
+    );
+}
