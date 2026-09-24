@@ -54,6 +54,10 @@ those entries into the versioned section when a release is created.
   `pixi.lock` (`ros2-rclcpp` 32.0.3, `ros2-sensor-msgs` 5.9.3,
   `ros2-rosidl-generator-rs` 0.5.0).
 - Bump the Pixi Rust toolchain from 1.93 to 1.98.
+- Bump the Pixi `compilers` from 1.11 to 2.0 (clang 21 on macOS, gcc 15 on
+  Linux). Compilers 2.0 no longer exports `CC`/`CFLAGS`/`LDFLAGS`; on macOS its
+  clang config files add the environment's `lib` directory as an rpath, so the
+  `RUSTFLAGS` rpath workaround for `osx-arm64` is removed.
 
 > Known issue on Lyrical: the `DynamicMessage` fallback in `rclrs` still panics
 > on primitive or string sequence fields (e.g. `sensor_msgs/PointCloud2`).

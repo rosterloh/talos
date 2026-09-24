@@ -9,13 +9,6 @@ version = "0.1.5"
 # the pre-generated Rust message bindings shipped by the robostack-lyrical
 # conda packages. No ROS 2 source build is required — `ros-env` compiles the
 # bindings it finds on AMENT_PREFIX_PATH.
-# The conda packages set LD_LIBRARY_PATH, which macOS ignores, and SIP strips
-# DYLD_* on the way through /bin/sh. Bake the environment's lib directory into
-# the binaries as an rpath instead, or the ROS 2 typesupport dylibs link fine
-# but fail to load at run time.
-[target.osx-arm64.activation.env]
-RUSTFLAGS = "-C link-arg=-Wl,-rpath,$CONDA_PREFIX/lib"
-
 [tasks]
 build = "cargo build"
 build-quic = "cargo build --features quic"
@@ -28,4 +21,5 @@ ros2-distro-mutex = { version = "*", build = "lyrical*" }
 ros2-ros-base = ">=0.13.0,<0.14"
 rust = ">=1.98.1,<1.99"
 pkg-config = ">=0.29.2,<0.30"
-compilers = ">=1.11.0,<2"
+# >=2: the clang config files add the env lib dir as an rpath on macOS.
+compilers = ">=2.0.0,<3"
