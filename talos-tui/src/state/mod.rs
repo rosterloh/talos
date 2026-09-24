@@ -1,3 +1,5 @@
+use ratatui::widgets::{ListState, TableState};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use talos_common::protocol::messages::Response;
@@ -8,6 +10,7 @@ mod joints;
 mod logs;
 mod params;
 mod topics;
+mod tree;
 
 pub use filter::{FilterPrompt, TextInput};
 pub use joints::{JointData, JointFocus};
@@ -63,6 +66,19 @@ pub enum TransportType {
 }
 
 pub struct AppState {
+    // Widget viewport state is presentation-only; keep it across redraws/resizes.
+    pub lists: RefCell<HashMap<String, ListState>>,
+    pub tables: RefCell<HashMap<String, TableState>>,
+    pub scroll: RefCell<HashMap<String, u16>>,
+    pub tree_selection: HashMap<String, String>,
+    pub show_endpoints: bool,
+    pub log_live: bool,
+    pub log_expanded: bool,
+    pub log_inspected: Option<LogEntry>,
+    pub param_edit_target: Option<(String, String)>,
+    pub joint_targets: HashMap<String, f64>,
+    pub joint_pending: bool,
+    pub no_color: bool,
     pub active_tab: Tab,
     pub active_pane: Pane,
     pub connected: bool,
@@ -139,6 +155,18 @@ pub struct TopicEndpoints {
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            lists: RefCell::default(),
+            tables: RefCell::default(),
+            scroll: RefCell::default(),
+            tree_selection: HashMap::new(),
+            show_endpoints: false,
+            log_live: true,
+            log_expanded: false,
+            log_inspected: None,
+            param_edit_target: None,
+            joint_targets: HashMap::new(),
+            joint_pending: false,
+            no_color: std::env::var_os("NO_COLOR").is_some_and(|s| !s.is_empty()),
             active_tab: Tab::Topics,
             active_pane: Pane::Left,
             connected: false,
@@ -189,14 +217,34 @@ impl Default for AppState {
 }
 
 impl AppState {
-    /// Reply to `SetJointPosition` / `ExecutePose`. Success keeps the status
-    /// set when the command was sent; only failures replace it.
+    /// A publication acknowledgement is not evidence that a joint reached its target.
     pub fn handle_joint_command_response(&mut self, response: Response) {
+        self.joint_pending = false;
         match response {
-            Response::Ok(_) => {}
+            Response::Ok(_) => {
+                if let Some(status) = &mut self.joint_status {
+                    *status = status.replacen("pending", "published", 1);
+                }
+            }
             Response::Error(e) => self.joint_status = Some(format!("error: {e}")),
             other => self.handle_response(other),
         }
+    }
+
+    pub fn scroll_by(&self, key: &str, delta: i16) {
+        let mut scroll = self.scroll.borrow_mut();
+        let offset = scroll.entry(key.into()).or_default();
+        *offset = offset.saturating_add_signed(delta);
+    }
+
+    pub fn node_scroll_key(&self) -> String {
+        format!(
+            "node:{}",
+            self.filtered_nodes()
+                .get(self.node_selected)
+                .map(|n| node_fqn(n))
+                .unwrap_or_default()
+        )
     }
 
     /// Reply to `GetLoggerLevel` / `SetLoggerLevel`. Errors go to

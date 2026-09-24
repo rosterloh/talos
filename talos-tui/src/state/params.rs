@@ -31,11 +31,23 @@ impl AppState {
     }
 
     pub(crate) fn handle_parameters(&mut self, node: String, parameters: Vec<ParamInfo>) {
+        if self
+            .param_node
+            .as_ref()
+            .is_some_and(|selected| selected != &node)
+        {
+            return;
+        }
+        let selected = self
+            .filtered_parameters()
+            .get(self.param_selected)
+            .map(|p| p.name.clone());
         self.param_node = Some(node);
         self.parameters = parameters;
-        if self.param_selected >= self.filtered_parameters().len() {
-            self.param_selected = 0;
-        }
+        let filtered = self.filtered_parameters();
+        self.param_selected = selected
+            .and_then(|name| filtered.iter().position(|p| p.name == name))
+            .unwrap_or(self.param_selected.min(filtered.len().saturating_sub(1)));
         // After a set, the follow-up refresh must not hide the set's result.
         if std::mem::take(&mut self.param_awaiting_reply) {
             self.param_status = Some(format!("{} parameter(s)", self.parameters.len()));
@@ -44,6 +56,10 @@ impl AppState {
 
     pub(crate) fn handle_parameter_set(&mut self, name: String, successful: bool, reason: String) {
         self.param_awaiting_reply = false;
+        if successful {
+            self.editing_param = false;
+            self.param_input.clear();
+        }
         self.param_status = Some(if successful {
             format!("set '{name}'")
         } else {

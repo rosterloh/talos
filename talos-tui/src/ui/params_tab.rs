@@ -1,178 +1,133 @@
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
-
+use super::style;
 use crate::state::{AppState, Pane, node_label};
+use ratatui::{
+    Frame,
+    layout::{Constraint, Layout, Rect},
+    text::{Line, Span},
+    widgets::{List, ListItem, Paragraph, Row, Table, Wrap},
+};
 
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
-        .split(area);
-
-    draw_node_list(f, state, chunks[0]);
-    draw_param_pane(f, state, chunks[1]);
-}
-
-fn draw_node_list(f: &mut Frame, state: &AppState, area: Rect) {
-    let items: Vec<ListItem> = state
+    let [left, right] = super::panes(area, state.active_pane);
+    let focused = state.active_pane == Pane::Left;
+    let items: Vec<_> = state
         .nodes
         .iter()
-        .enumerate()
-        .map(|(i, node)| {
-            let marker = if i == state.param_node_selected {
-                "▶ "
-            } else {
-                "  "
-            };
-            let style = if i == state.param_node_selected {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(Line::from(Span::styled(
-                format!("{marker}{}", node_label(node)),
-                style,
-            )))
-        })
+        .map(|n| ListItem::new(node_label(n)))
         .collect();
-
-    let border_style = if state.active_pane == Pane::Left {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" NODES ")
-            .border_style(border_style),
+    super::list(
+        f,
+        state,
+        "param-nodes",
+        List::new(items).block(style::pane("NODES", focused)),
+        left,
+        state.param_node_selected,
+        focused,
     );
-
-    // A fresh state each frame is enough: ratatui scrolls to keep the selection visible.
-    let mut list_state = ListState::default().with_selected(Some(state.param_node_selected));
-    f.render_stateful_widget(list, area, &mut list_state);
-}
-
-fn draw_param_pane(f: &mut Frame, state: &AppState, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(3)])
-        .split(area);
-
-    draw_param_list(f, state, chunks[0]);
-    draw_footer(f, state, chunks[1]);
-}
-
-fn draw_param_list(f: &mut Frame, state: &AppState, area: Rect) {
-    let border_style = if state.active_pane == Pane::Right {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-
-    let title = match &state.param_node {
-        Some(node) => format!(" PARAMETERS · {node} "),
-        None => " PARAMETERS ".to_string(),
-    };
-    let title = super::filter_title(title, &state.param_filter);
-
-    if state.parameters.is_empty() {
-        let hint = if state.param_node.is_some() {
-            "No parameters."
-        } else {
-            "Select a node (left pane) and press Enter to load its parameters."
-        };
-        let para = Paragraph::new(Line::from(Span::styled(
-            hint,
-            Style::default().fg(Color::DarkGray),
-        )))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(title)
-                .border_style(border_style),
-        );
-        f.render_widget(para, area);
+    if right.is_empty() {
         return;
     }
-
-    let items: Vec<ListItem> = state
-        .filtered_parameters()
-        .into_iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let selected = state.active_pane == Pane::Right && i == state.param_selected;
-            let marker = if selected { "▶ " } else { "  " };
-            let name_style = if selected {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(marker, name_style),
-                Span::styled(format!("{:<32}", p.name), name_style),
-                Span::styled(p.value.to_string(), Style::default().fg(Color::Green)),
-                Span::styled(
-                    format!("  ({})", p.value.type_name()),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]))
-        })
-        .collect();
-
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(border_style),
+    let editing = state.editing_param;
+    let [body, footer] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(if editing { 7.min(right.height) } else { 2 }),
+    ])
+    .areas(right);
+    let params = state.filtered_parameters();
+    let title = super::filter_title(
+        format!("PARAMETERS {}", state.param_node.as_deref().unwrap_or("")),
+        &state.param_filter,
     );
-
-    let mut list_state = ListState::default().with_selected(Some(state.param_selected));
-    f.render_stateful_widget(list, area, &mut list_state);
-}
-
-fn draw_footer(f: &mut Frame, state: &AppState, area: Rect) {
-    let (title, line) = if state.editing_param {
-        let name = state
-            .filtered_parameters()
-            .get(state.param_selected)
-            .map(|p| p.name.as_str())
-            .unwrap_or("");
-        let mut spans = vec![Span::styled(
-            format!("set {name} = "),
-            Style::default().fg(Color::Yellow),
-        )];
-        spans.extend(super::input_spans(
-            &state.param_input,
-            Style::default().fg(Color::White),
-        ));
-        (" EDIT (Enter to apply, Esc to cancel) ", Line::from(spans))
-    } else if let Some(status) = &state.param_status {
-        (
-            " STATUS ",
-            Line::from(Span::styled(
-                status.clone(),
-                Style::default().fg(Color::Gray),
-            )),
-        )
+    if state.parameters.is_empty() {
+        f.render_widget(
+            Paragraph::new(if state.param_awaiting_reply {
+                "Loading…"
+            } else if state.param_node.is_some() {
+                "No parameters"
+            } else {
+                "Select node; Enter loads parameters"
+            })
+            .block(style::pane(title, !focused)),
+            body,
+        );
     } else {
-        (
-            " STATUS ",
-            Line::from(Span::styled(
-                "Enter: load · e: edit value · Tab: switch pane",
-                Style::default().fg(Color::DarkGray),
-            )),
+        let rows: Vec<_> = params
+            .iter()
+            .map(|p| {
+                Row::new(vec![
+                    p.name.clone(),
+                    p.value.type_name().into(),
+                    p.value.to_string(),
+                ])
+            })
+            .collect();
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Percentage(35),
+                Constraint::Length((body.width / 5).clamp(4, 13)),
+                Constraint::Min(1),
+            ],
         )
+        .header(Row::new(["Name", "Type", "Current value"]).style(style::SECONDARY))
+        .block(style::pane(title, !focused));
+        super::table(
+            f,
+            state,
+            "parameters",
+            table,
+            body,
+            state.param_selected,
+            !focused,
+        );
+    }
+    let block = style::pane(
+        if editing {
+            "EDIT · Enter apply / Esc close"
+        } else {
+            "STATUS"
+        },
+        editing,
+    );
+    let inner = block.inner(footer);
+    f.render_widget(block, footer);
+    let status_area = if editing {
+        let [name, current, input, status] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .areas(inner);
+        if let Some(p) = params.get(state.param_selected) {
+            f.render_widget(
+                Paragraph::new(format!("({}) {}", p.value.type_name(), p.name)),
+                name,
+            );
+            f.render_widget(Paragraph::new(format!("Current: {}", p.value)), current);
+        }
+        let mut spans = vec![Span::styled("New: ", style::FOCUS)];
+        spans.extend(super::input_spans(&state.param_input, style::PRIMARY));
+        let cursor = 5 + Span::raw(state.param_input.split().0).width();
+        let offset = cursor
+            .saturating_sub(input.width.saturating_sub(1) as usize)
+            .min(u16::MAX as usize) as u16;
+        f.render_widget(Paragraph::new(Line::from(spans)).scroll((0, offset)), input);
+        status
+    } else {
+        inner
     };
-
-    let para = Paragraph::new(line).block(Block::default().borders(Borders::ALL).title(title));
-    f.render_widget(para, area);
+    if let Some(status) = &state.param_status {
+        let paragraph = Paragraph::new(status.as_str())
+            .style(style::status(status))
+            .wrap(Wrap { trim: false });
+        let max = paragraph
+            .line_count(status_area.width)
+            .saturating_sub(status_area.height as usize)
+            .min(u16::MAX as usize) as u16;
+        let mut offsets = state.scroll.borrow_mut();
+        let offset = offsets.entry("param-status".into()).or_default();
+        *offset = (*offset).min(max);
+        f.render_widget(paragraph.scroll((*offset, 0)), status_area);
+    }
 }

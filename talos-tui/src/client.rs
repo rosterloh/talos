@@ -64,6 +64,14 @@ pub async fn run(
             let mut s = state.lock().unwrap();
             s.connected = false;
             s.transport_type = None;
+            if s.joint_pending {
+                s.joint_pending = false;
+                s.joint_status = Some("error: connection lost; command outcome unknown".into());
+            }
+            if s.param_awaiting_reply {
+                s.param_awaiting_reply = false;
+                s.param_status = Some("error: connection lost; request outcome unknown".into());
+            }
         }
 
         match result {
