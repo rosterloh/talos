@@ -18,6 +18,7 @@ pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
 }
 
 fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
+    let now = std::time::Instant::now();
     let items: Vec<ListItem> = state
         .topic_names
         .iter()
@@ -27,8 +28,9 @@ fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
                 .topics
                 .get(name)
                 .map(|t| {
-                    if t.hz > 0.5 {
-                        format!("{:>5.0}Hz", t.hz)
+                    let hz = t.hz_at(now);
+                    if hz > 0.5 {
+                        format!("{hz:>5.0}Hz")
                     } else if t.msg_count > 0 {
                         "latch".to_string()
                     } else {
@@ -102,8 +104,9 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
             .rsplit('/')
             .next()
             .unwrap_or(&topic.info.type_name);
-        let hz_str = if topic.hz > 0.5 {
-            format!(" @ {:.0}Hz", topic.hz)
+        let hz = topic.hz_at(std::time::Instant::now());
+        let hz_str = if hz > 0.5 {
+            format!(" @ {hz:.0}Hz")
         } else {
             String::new()
         };

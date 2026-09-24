@@ -67,6 +67,13 @@ enum Command {
 
 #[tokio::main]
 async fn main() {
+    // Rust ignores SIGPIPE, which makes `println!` panic once a pipe reader
+    // like `head` exits. Restore the default so the CLI ends quietly instead.
+    // SAFETY: resetting to SIG_DFL installs no Rust handler, and nothing else in
+    // the CLI manages SIGPIPE.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let cli = Cli::parse();
 
     if let Err(e) = run(cli).await {

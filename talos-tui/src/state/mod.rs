@@ -99,6 +99,8 @@ pub struct AppState {
     pub editing_joint: bool,
     pub joint_input: String,
     pub joint_input_error: Option<String>,
+    /// Outcome of the last joint or pose command.
+    pub joint_status: Option<String>,
     pub pose_confirming: bool,
 
     // Params tab
@@ -143,6 +145,7 @@ impl Default for AppState {
             editing_joint: false,
             joint_input: String::new(),
             joint_input_error: None,
+            joint_status: None,
             pose_confirming: false,
             param_node_selected: 0,
             param_node: None,
@@ -157,6 +160,16 @@ impl Default for AppState {
 }
 
 impl AppState {
+    /// Reply to `SetJointPosition` / `ExecutePose`. Success keeps the status
+    /// set when the command was sent; only failures replace it.
+    pub fn handle_joint_command_response(&mut self, response: Response) {
+        match response {
+            Response::Ok(_) => {}
+            Response::Error(e) => self.joint_status = Some(format!("error: {e}")),
+            other => self.handle_response(other),
+        }
+    }
+
     pub fn handle_response(&mut self, response: Response) {
         match response {
             Response::TopicList(topics) => self.handle_topic_list(topics),

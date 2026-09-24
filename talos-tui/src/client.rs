@@ -226,13 +226,23 @@ async fn connect_and_run<C: ProtocolClient>(
                                     }
                                 }
                             }
-                            other => match client.request(other).await {
+                            other => {
+                                let joint_command = matches!(
+                                    other,
+                                    Request::SetJointPosition { .. } | Request::ExecutePose { .. }
+                                );
+                                match client.request(other).await {
                                 Ok(response) => {
                                 let mut s = state.lock().unwrap();
-                                s.handle_response(response);
+                                if joint_command {
+                                    s.handle_joint_command_response(response);
+                                } else {
+                                    s.handle_response(response);
+                                }
                             }
                                 Err(e) => return Err(e.to_string()),
-                            },
+                            }
+                            }
                         }
                     }
                     None => return Ok(()),
