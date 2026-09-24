@@ -1,13 +1,14 @@
+mod filter;
 mod params;
 
 use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent};
 use talos_common::protocol::messages::Request;
-use talos_common::protocol::types::DynValue;
+use talos_common::protocol::types::{DynValue, LOGGER_LEVELS};
 use tokio::sync::mpsc;
 
-use crate::state::{AppState, JointFocus, LogLevel, Pane, Tab};
+use crate::state::{AppState, JointFocus, LogLevel, Pane, Tab, node_fqn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppAction {
@@ -22,6 +23,11 @@ pub fn handle_key_event(
 ) -> AppAction {
     if state.show_help {
         state.show_help = false;
+        return AppAction::Continue;
+    }
+
+    if state.filter_prompt.is_some() {
+        filter::handle_key(state, key);
         return AppAction::Continue;
     }
 
@@ -44,6 +50,15 @@ pub fn handle_key_event(
         KeyCode::Char('q') => AppAction::Quit,
         KeyCode::Char('?') => {
             state.show_help = true;
+            AppAction::Continue
+        }
+        KeyCode::Char('r') => {
+            // The client treats `ListTopics` as "refresh the lists now".
+            let _ = cmd_tx.send(Request::ListTopics);
+            AppAction::Continue
+        }
+        KeyCode::Char('/') => {
+            filter::open(state);
             AppAction::Continue
         }
         KeyCode::Char('1') => {
@@ -99,6 +114,14 @@ pub fn handle_key_event(
         }
         KeyCode::Char('f') if state.active_tab == Tab::Log => {
             cycle_log_severity_filter(state);
+            AppAction::Continue
+        }
+        KeyCode::Char('l') if state.active_tab == Tab::Nodes => {
+            load_logger_level(state, cmd_tx);
+            AppAction::Continue
+        }
+        KeyCode::Char('L') if state.active_tab == Tab::Nodes => {
+            cycle_logger_level(state, cmd_tx);
             AppAction::Continue
         }
         KeyCode::Char('s') if state.active_tab == Tab::Topics => {
@@ -188,6 +211,51 @@ fn handle_topic_subscription_toggle(state: &mut AppState, cmd_tx: &mpsc::Unbound
     }
 }
 
+fn load_logger_level(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
+    let Some(node) = state
+        .filtered_nodes()
+        .get(state.node_selected)
+        .map(|n| node_fqn(n))
+    else {
+        return;
+    };
+    state.logger_node = Some(node.clone());
+    state.logger_level = None;
+    state.logger_status = None;
+    let _ = cmd_tx.send(Request::GetLoggerLevel {
+        node,
+        logger: String::new(),
+    });
+}
+
+/// Set the selected node's logger to the level after its current one
+/// (DEBUG → INFO → … → FATAL → DEBUG; unknown or UNSET starts at DEBUG).
+fn cycle_logger_level(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
+    let Some(node) = state
+        .filtered_nodes()
+        .get(state.node_selected)
+        .map(|n| node_fqn(n))
+    else {
+        return;
+    };
+    let current = if state.logger_node.as_deref() == Some(node.as_str()) {
+        state.logger_level.unwrap_or(0)
+    } else {
+        0
+    };
+    let next = LOGGER_LEVELS[1..]
+        .iter()
+        .map(|(level, _)| *level)
+        .find(|level| *level > current)
+        .unwrap_or(LOGGER_LEVELS[1].0);
+    let _ = cmd_tx.send(Request::SetLoggerLevel {
+        node: node.clone(),
+        logger: String::new(),
+        level: next,
+    });
+    load_logger_level(state, cmd_tx);
+}
+
 fn handle_joint_input_submit(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
     let value: f64 = match state.joint_input.parse() {
         Ok(v) => v,
@@ -198,21 +266,18 @@ fn handle_joint_input_submit(state: &mut AppState, cmd_tx: &mpsc::UnboundedSende
     };
 
     if let Some(joint) = state.joints.get(state.joint_selected) {
-        let clamped = if let Some(ref limits) = joint.info.limits {
-            if value < limits.lower {
-                state.joint_input_error =
-                    Some(format!("clamped to lower limit {:.4}", limits.lower));
-                limits.lower
-            } else if value > limits.upper {
-                state.joint_input_error =
-                    Some(format!("clamped to upper limit {:.4}", limits.upper));
-                limits.upper
-            } else {
-                value
-            }
-        } else {
-            value
+        let (clamped, note) = match joint.info.limits {
+            Some(ref limits) if value < limits.lower => (
+                limits.lower,
+                format!(" (clamped to lower limit {:.4})", limits.lower),
+            ),
+            Some(ref limits) if value > limits.upper => (
+                limits.upper,
+                format!(" (clamped to upper limit {:.4})", limits.upper),
+            ),
+            _ => (value, String::new()),
         };
+        state.joint_status = Some(format!("sent {} = {clamped:.4}{note}", joint.info.name));
 
         let _ = cmd_tx.send(Request::SetJointPosition {
             joint: joint.info.name.clone(),
@@ -229,6 +294,7 @@ fn handle_pose_confirm(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Requ
         let _ = cmd_tx.send(Request::ExecutePose {
             name: pose.name.clone(),
         });
+        state.joint_status = Some(format!("sent pose '{}'", pose.name));
     }
     state.pose_confirming = false;
 }
@@ -269,13 +335,16 @@ fn handle_up(state: &mut AppState) {
 fn handle_down(state: &mut AppState) {
     match state.active_tab {
         Tab::Topics => {
-            if state.active_pane == Pane::Left && state.topic_selected + 1 < state.topic_names.len()
+            if state.active_pane == Pane::Left
+                && state.topic_selected + 1 < state.filtered_topic_names().len()
             {
                 state.topic_selected += 1;
             }
         }
         Tab::Nodes => {
-            if state.active_pane == Pane::Left && state.node_selected + 1 < state.nodes.len() {
+            if state.active_pane == Pane::Left
+                && state.node_selected + 1 < state.filtered_nodes().len()
+            {
                 state.node_selected += 1;
             }
         }
@@ -304,7 +373,7 @@ fn handle_down(state: &mut AppState) {
 fn handle_left(state: &mut AppState) {
     if state.active_tab == Tab::Topics
         && state.active_pane == Pane::Right
-        && let Some(topic_name) = state.topic_names.get(state.topic_selected)
+        && let Some(topic_name) = state.selected_topic_name()
     {
         let prefix = format!("{topic_name}.");
         let keys_to_collapse: Vec<String> = state
@@ -322,11 +391,11 @@ fn handle_left(state: &mut AppState) {
 fn handle_right(state: &mut AppState) {
     if state.active_tab == Tab::Topics
         && state.active_pane == Pane::Right
-        && let Some(topic_name) = state.topic_names.get(state.topic_selected)
-        && let Some(topic_data) = state.topics.get(topic_name)
+        && let Some(topic_name) = state.selected_topic_name()
+        && let Some(topic_data) = state.topics.get(&topic_name)
         && let Some(ref data) = topic_data.latest
     {
-        expand_first_level(data, topic_name, &mut state.tree_expanded);
+        expand_first_level(data, &topic_name, &mut state.tree_expanded);
     }
 }
 
@@ -344,7 +413,7 @@ fn expand_first_level(value: &DynValue, path: &str, expanded: &mut HashMap<Strin
 fn handle_enter(state: &mut AppState) {
     if state.active_tab == Tab::Topics
         && state.active_pane == Pane::Right
-        && let Some(topic_name) = state.topic_names.get(state.topic_selected).cloned()
+        && let Some(topic_name) = state.selected_topic_name()
         && let Some(topic_data) = state.topics.get(&topic_name)
         && let Some(ref data) = topic_data.latest
     {
@@ -372,6 +441,7 @@ fn cycle_log_severity_filter(state: &mut AppState) {
         .position(|l| *l == state.log_severity_filter)
         .unwrap_or(0);
     state.log_severity_filter = levels[(idx + 1) % levels.len()];
+    state.clamp_log_selection();
 }
 
 #[cfg(test)]
@@ -382,6 +452,114 @@ mod tests {
     use talos_common::protocol::messages::Response;
     use talos_common::protocol::types::{TopicInfo, TopicSub};
 
+    #[test]
+    fn clamped_joint_command_reports_clamp_until_agent_error() {
+        use crate::state::JointData;
+        use talos_common::protocol::types::{JointInfo, JointLimits, JointType};
+
+        let mut state = AppState::default();
+        state.joints.push(JointData {
+            info: JointInfo {
+                name: "elbow".into(),
+                joint_type: JointType::Revolute,
+                parent_link: "a".into(),
+                child_link: "b".into(),
+                limits: Some(JointLimits {
+                    lower: -1.0,
+                    upper: 1.0,
+                    effort: 0.0,
+                    velocity: 0.0,
+                }),
+            },
+            position: None,
+            velocity: None,
+            effort: None,
+        });
+        state.joint_input = "5".into();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        handle_joint_input_submit(&mut state, &tx);
+
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Request::SetJointPosition { position, .. }) if position == 1.0
+        ));
+        let status = state.joint_status.clone().unwrap();
+        assert!(status.contains("clamped to upper limit"), "{status}");
+
+        state.handle_joint_command_response(Response::Ok("joint command published".into()));
+        assert_eq!(state.joint_status.as_deref(), Some(status.as_str()));
+
+        state.handle_joint_command_response(Response::Error("joint publisher not ready".into()));
+        assert_eq!(
+            state.joint_status.as_deref(),
+            Some("error: joint publisher not ready")
+        );
+        assert_eq!(state.param_status, None);
+    }
+
+    #[test]
+    fn logger_level_cycles_and_wraps() {
+        use talos_common::protocol::types::NodeInfo;
+
+        let mut state = AppState {
+            active_tab: Tab::Nodes,
+            nodes: vec![NodeInfo {
+                name: "foo".into(),
+                namespace: "/ns".into(),
+                publishers: Vec::new(),
+                subscribers: Vec::new(),
+                services: Vec::new(),
+            }],
+            ..Default::default()
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let shift_l = KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT);
+
+        for (current, expected) in [(None, 10), (Some(10), 20), (Some(50), 10)] {
+            state.logger_node = Some("/ns/foo".into());
+            state.logger_level = current;
+            handle_key_event(&mut state, &tx, shift_l);
+            assert!(matches!(
+                rx.try_recv(),
+                Ok(Request::SetLoggerLevel { node, level, .. }) if node == "/ns/foo" && level == expected
+            ));
+            assert!(matches!(rx.try_recv(), Ok(Request::GetLoggerLevel { .. })));
+        }
+
+        state.handle_logger_response(Response::Error("no logger services".into()));
+        assert_eq!(
+            state.logger_status.as_deref(),
+            Some("error: no logger services")
+        );
+        assert_eq!(state.param_status, None);
+    }
+
+    #[test]
+    fn logger_level_targets_selected_row_of_filtered_nodes() {
+        use talos_common::protocol::types::NodeInfo;
+
+        let node = |name: &str| NodeInfo {
+            name: name.into(),
+            namespace: "/".into(),
+            publishers: Vec::new(),
+            subscribers: Vec::new(),
+            services: Vec::new(),
+        };
+        let mut state = AppState {
+            active_tab: Tab::Nodes,
+            nodes: vec![node("lidar"), node("cam")],
+            node_filter: "cam".into(),
+            ..Default::default()
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        handle_key_event(&mut state, &tx, KeyEvent::from(KeyCode::Char('l')));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Request::GetLoggerLevel { node, .. }) if node == "/cam"
+        ));
+    }
+
     fn topic(name: &str, type_name: &str) -> TopicInfo {
         TopicInfo {
             name: name.into(),
@@ -389,6 +567,39 @@ mod tests {
             publisher_count: 1,
             subscriber_count: 0,
         }
+    }
+
+    #[test]
+    fn filter_prompt_captures_global_keys_and_clamps_selection() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![
+            topic("/camera", "sensor_msgs/msg/Image"),
+            topic("/lidar", "sensor_msgs/msg/LaserScan"),
+            topic("/odom", "nav_msgs/msg/Odometry"),
+        ]));
+        state.topic_selected = 2;
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        let press = |state: &mut AppState, code| {
+            handle_key_event(state, &cmd_tx, KeyEvent::new(code, KeyModifiers::NONE))
+        };
+
+        press(&mut state, KeyCode::Char('/'));
+        for c in "q2?".chars() {
+            assert_eq!(press(&mut state, KeyCode::Char(c)), AppAction::Continue);
+        }
+        assert_eq!(state.active_tab, Tab::Topics);
+        assert_eq!(state.topic_filter, "q2?");
+        assert!(!state.show_help);
+        assert_eq!(state.topic_selected, 0);
+
+        press(&mut state, KeyCode::Esc);
+        press(&mut state, KeyCode::Char('/'));
+        for c in "LID".chars() {
+            press(&mut state, KeyCode::Char(c));
+        }
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.topic_filter, "LID");
+        assert_eq!(state.selected_topic_name().as_deref(), Some("/lidar"));
     }
 
     #[test]

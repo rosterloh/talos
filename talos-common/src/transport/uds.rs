@@ -23,7 +23,14 @@ impl TransportServer for UdsTransport {
     type Listener = UnixListener;
 
     async fn bind(config: &TransportConfig) -> Result<Self::Listener, Error> {
-        // Remove stale socket file if it exists
+        // A socket that still accepts connections belongs to a running agent;
+        // only a stale file left behind by a dead one may be removed.
+        if std::os::unix::net::UnixStream::connect(&config.socket_path).is_ok() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::AddrInUse,
+                format!("{} is in use by another server", config.socket_path),
+            )));
+        }
         let _ = std::fs::remove_file(&config.socket_path);
         let listener = UnixListener::bind(&config.socket_path)?;
         Ok(listener)

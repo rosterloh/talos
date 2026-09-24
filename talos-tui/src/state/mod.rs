@@ -1,13 +1,15 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use talos_common::protocol::messages::Response;
-use talos_common::protocol::types::{NodeInfo, ParamInfo, PoseInfo};
+use talos_common::protocol::types::{EndpointInfo, NodeInfo, ParamInfo, PoseInfo};
 
+mod filter;
 mod joints;
 mod logs;
 mod params;
 mod topics;
 
+pub use filter::{FilterPrompt, TextInput};
 pub use joints::{JointData, JointFocus};
 pub use logs::{LogEntry, LogLevel};
 pub(crate) use params::{node_fqn, node_label};
@@ -67,6 +69,8 @@ pub struct AppState {
     /// Set when connected; drives the transport-type indicator in the status bar.
     pub transport_type: Option<TransportType>,
     pub show_help: bool,
+    /// Open `/` filter prompt for the active tab's list.
+    pub filter_prompt: Option<FilterPrompt>,
 
     // Topics tab
     pub topics: HashMap<String, TopicData>,
@@ -77,10 +81,17 @@ pub struct AppState {
     // Sticky on purpose: once a user makes any manual choice, later topic
     // catalogs should keep honoring that explicit desired set across reconnects.
     pub subscriptions_customized: bool,
+    pub topic_filter: String,
 
     // Nodes tab
     pub nodes: Vec<NodeInfo>,
     pub node_selected: usize,
+    pub node_filter: String,
+    /// Node that `logger_level` and `logger_status` belong to.
+    pub logger_node: Option<String>,
+    pub logger_level: Option<u32>,
+    /// Outcome of the last logger-level set, or an agent error.
+    pub logger_status: Option<String>,
 
     // Log tab
     pub log_entries: VecDeque<LogEntry>,
@@ -99,6 +110,8 @@ pub struct AppState {
     pub editing_joint: bool,
     pub joint_input: String,
     pub joint_input_error: Option<String>,
+    /// Outcome of the last joint or pose command.
+    pub joint_status: Option<String>,
     pub pose_confirming: bool,
 
     // Params tab
@@ -106,9 +119,21 @@ pub struct AppState {
     pub param_node: Option<String>,
     pub parameters: Vec<ParamInfo>,
     pub param_selected: usize,
+    pub param_filter: String,
     pub editing_param: bool,
-    pub param_input: String,
+    pub param_input: TextInput,
     pub param_status: Option<String>,
+    /// A load or set was sent and its first reply should update `param_status`.
+    pub param_awaiting_reply: bool,
+    /// Endpoints of the selected topic, from the last `GetTopicEndpoints`.
+    pub topic_endpoints: Option<TopicEndpoints>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TopicEndpoints {
+    pub topic: String,
+    pub publishers: Vec<EndpointInfo>,
+    pub subscribers: Vec<EndpointInfo>,
 }
 
 impl Default for AppState {
@@ -119,14 +144,20 @@ impl Default for AppState {
             connected: false,
             transport_type: None,
             show_help: false,
+            filter_prompt: None,
             topics: HashMap::new(),
             topic_names: Vec::new(),
             topic_selected: 0,
             tree_expanded: HashMap::new(),
             desired_subscriptions: HashSet::new(),
             subscriptions_customized: false,
+            topic_filter: String::new(),
             nodes: Vec::new(),
             node_selected: 0,
+            node_filter: String::new(),
+            logger_node: None,
+            logger_level: None,
+            logger_status: None,
             log_entries: VecDeque::new(),
             log_max_entries: 10_000,
             log_selected: 0,
@@ -141,25 +172,90 @@ impl Default for AppState {
             editing_joint: false,
             joint_input: String::new(),
             joint_input_error: None,
+            joint_status: None,
             pose_confirming: false,
             param_node_selected: 0,
             param_node: None,
             parameters: Vec::new(),
             param_selected: 0,
+            param_filter: String::new(),
             editing_param: false,
-            param_input: String::new(),
+            param_input: TextInput::default(),
             param_status: None,
+            param_awaiting_reply: false,
+            topic_endpoints: None,
         }
     }
 }
 
 impl AppState {
+    /// Reply to `SetJointPosition` / `ExecutePose`. Success keeps the status
+    /// set when the command was sent; only failures replace it.
+    pub fn handle_joint_command_response(&mut self, response: Response) {
+        match response {
+            Response::Ok(_) => {}
+            Response::Error(e) => self.joint_status = Some(format!("error: {e}")),
+            other => self.handle_response(other),
+        }
+    }
+
+    /// Reply to `GetLoggerLevel` / `SetLoggerLevel`. Errors go to
+    /// `logger_status` rather than a pending parameter request.
+    pub fn handle_logger_response(&mut self, response: Response) {
+        match response {
+            Response::Error(e) => self.logger_status = Some(format!("error: {e}")),
+            other => self.handle_response(other),
+        }
+    }
+
+    /// Topic whose endpoints should be fetched: the one selected on the
+    /// Topics tab.
+    pub fn endpoint_query_topic(&self) -> Option<String> {
+        (self.active_tab == Tab::Topics)
+            .then(|| self.selected_topic_name())
+            .flatten()
+    }
+
+    /// Reply to `GetTopicEndpoints`. A failed graph query only clears the
+    /// endpoint view; it must not reach `handle_response`, where an `Error`
+    /// would be taken as the reply to a pending parameter request.
+    pub fn handle_endpoints_response(&mut self, response: Response) {
+        match response {
+            Response::Error(e) => {
+                self.topic_endpoints = None;
+                tracing::warn!("failed to list topic endpoints: {e}");
+            }
+            other => self.handle_response(other),
+        }
+    }
+
+    /// Replace the node list, keeping the Nodes and Params selections on the
+    /// same node by name, or clamped if it is gone.
+    fn handle_node_list(&mut self, nodes: Vec<NodeInfo>) {
+        // `node_selected` indexes the filtered Nodes list; `param_node_selected`
+        // indexes the unfiltered list on the Params tab.
+        let node_key = self
+            .filtered_nodes()
+            .get(self.node_selected)
+            .map(|n| node_fqn(n));
+        let param_key = self.nodes.get(self.param_node_selected).map(node_fqn);
+        self.nodes = nodes;
+        let reselect = |selected: &mut usize, key: Option<String>, fqns: Vec<String>| match key
+            .and_then(|k| fqns.iter().position(|f| *f == k))
+        {
+            Some(index) => *selected = index,
+            None => filter::clamp_selection(selected, fqns.len()),
+        };
+        let fqns = self.filtered_nodes().into_iter().map(node_fqn).collect();
+        reselect(&mut self.node_selected, node_key, fqns);
+        let fqns = self.nodes.iter().map(node_fqn).collect();
+        reselect(&mut self.param_node_selected, param_key, fqns);
+    }
+
     pub fn handle_response(&mut self, response: Response) {
         match response {
             Response::TopicList(topics) => self.handle_topic_list(topics),
-            Response::NodeList(nodes) => {
-                self.nodes = nodes;
-            }
+            Response::NodeList(nodes) => self.handle_node_list(nodes),
             Response::TopicData {
                 topic,
                 type_name,
@@ -179,7 +275,91 @@ impl AppState {
             Response::Subscribed { topics } => self.handle_subscribed_topics(topics),
             Response::Unsubscribed { topics } => self.handle_unsubscribed_topics(topics),
             Response::Ok(_) => {}
-            Response::Error(_) => {}
+            Response::TopicStats(stats) => self.handle_topic_stats(stats),
+            Response::TopicEndpoints {
+                topic,
+                publishers,
+                subscribers,
+            } => {
+                self.topic_endpoints = Some(TopicEndpoints {
+                    topic,
+                    publishers,
+                    subscribers,
+                });
+            }
+            Response::LoggerLevel { node, level, .. } => {
+                self.logger_node = Some(node);
+                self.logger_level = Some(level);
+            }
+            Response::LoggerLevelSet {
+                successful, reason, ..
+            } => {
+                self.logger_status = (!successful).then(|| format!("rejected: {reason}"));
+            }
+            Response::Error(e) => {
+                if std::mem::take(&mut self.param_awaiting_reply) {
+                    self.param_status = Some(format!("error: {e}"));
+                }
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(name: &str) -> NodeInfo {
+        NodeInfo {
+            name: name.into(),
+            namespace: "/".into(),
+            publishers: vec![],
+            subscribers: vec![],
+            services: vec![],
+        }
+    }
+
+    #[test]
+    fn node_list_refresh_keeps_selection_by_name_or_clamps() {
+        let mut state = AppState::default();
+        state.handle_response(Response::NodeList(vec![node("a"), node("b"), node("c")]));
+        state.node_selected = 1;
+        state.param_node_selected = 2;
+
+        state.handle_response(Response::NodeList(vec![node("new"), node("a"), node("b")]));
+        assert_eq!(state.nodes[state.node_selected].name, "b");
+        // "c" is gone: clamp to the end of the list.
+        assert_eq!(state.param_node_selected, 2);
+
+        state.handle_response(Response::NodeList(vec![]));
+        assert_eq!(state.node_selected, 0);
+    }
+
+    #[test]
+    fn node_list_refresh_keeps_selection_within_filter() {
+        let mut state = AppState {
+            node_filter: "cam".into(),
+            ..AppState::default()
+        };
+        state.handle_response(Response::NodeList(vec![
+            node("cam_left"),
+            node("lidar"),
+            node("cam_right"),
+        ]));
+        state.node_selected = 1;
+        assert_eq!(
+            state.filtered_nodes()[state.node_selected].name,
+            "cam_right"
+        );
+
+        state.handle_response(Response::NodeList(vec![
+            node("cam_front"),
+            node("cam_left"),
+            node("cam_right"),
+        ]));
+        assert_eq!(
+            state.filtered_nodes()[state.node_selected].name,
+            "cam_right"
+        );
     }
 }

@@ -101,3 +101,20 @@ async fn multiple_requests() {
 
     let _ = std::fs::remove_file(&config.socket_path);
 }
+
+#[tokio::test]
+async fn bind_refuses_socket_of_running_server() {
+    let config = test_config();
+    let _live = UdsTransport::bind(&config).await.unwrap();
+    assert!(UdsTransport::bind(&config).await.is_err());
+    let _ = std::fs::remove_file(&config.socket_path);
+}
+
+#[tokio::test]
+async fn bind_replaces_stale_socket_file() {
+    let config = test_config();
+    drop(UdsTransport::bind(&config).await.unwrap());
+    // The socket file outlives its listener; nothing is accepting on it.
+    assert!(UdsTransport::bind(&config).await.is_ok());
+    let _ = std::fs::remove_file(&config.socket_path);
+}

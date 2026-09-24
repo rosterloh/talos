@@ -5,11 +5,14 @@ pub async fn run<C: ProtocolClient>(
     client: &mut C,
     topic: String,
     count: usize,
+    json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match client.subscribe(std::slice::from_ref(&topic)).await {
         Ok(subs) if subs.is_empty() => {
-            eprintln!("warning: agent did not confirm subscription to '{topic}'");
-            eprintln!("(the agent may not be subscribed to this topic)");
+            return Err(format!(
+                "agent did not confirm subscription to '{topic}' (is it in the agent's [[subscriptions]]?)"
+            )
+            .into());
         }
         Err(e) => {
             return Err(format!("failed to subscribe to '{topic}': {e}").into());
@@ -21,18 +24,22 @@ pub async fn run<C: ProtocolClient>(
     loop {
         let (recv_topic, frame) = client.recv_data().await?;
         if recv_topic == topic {
-            print_dynvalue(&frame.data, 0);
-            println!("---");
+            if json {
+                let line = serde_json::json!({
+                    "topic": recv_topic,
+                    "stamp": frame.stamp,
+                    "data": crate::json::dynvalue(&frame.data),
+                });
+                println!("{line}");
+            } else {
+                print_dynvalue(&frame.data, 0);
+                println!("---");
+            }
             received += 1;
             if count > 0 && received >= count {
                 break;
             }
         }
-    }
-
-    if received == 0 {
-        eprintln!("no data received for topic '{topic}'");
-        eprintln!("(the agent may not be subscribed to this topic)");
     }
 
     Ok(())

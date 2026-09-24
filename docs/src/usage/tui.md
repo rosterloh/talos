@@ -23,15 +23,29 @@ The TUI has five tabs:
 - Params
 
 Use number keys `1` through `5` to switch tabs. `Tab` switches focus between
-panes. `q` quits.
+panes. `r` refreshes the topic and node lists immediately. `q` quits.
+
+## Filtering
+
+Press `/` to filter the list on the current tab: topic names on Topics, node
+names (including namespace) on Nodes, parameter names on Params, and message
+text on Log. Matching is a case-insensitive substring and the list updates as
+you type. While the prompt is open every key goes to it: `←`/`→` move the
+cursor, `Backspace` deletes, `Ctrl-U` clears, `Enter` applies and `Esc`
+restores the previous filter. Applying an empty prompt clears the filter.
+
+The active filter is shown in the pane title (on the Log tab, in the filter
+bar), and the selection moves to stay inside the filtered list.
 
 ## Connection Behavior
 
 The TUI reconnects when the agent connection is lost. After connecting, it asks
 for the topic list and subscribes to all discovered topics by default so it can
-receive live data. If you manually toggle topic subscriptions, those choices are
-kept in the client state and re-applied after reconnect instead of subscribing
-to every topic again. Topics that disappear from the latest agent topic list are
+receive live data. While connected, it re-fetches the topic and node lists
+every 2 seconds, so nodes and topics that appear or go away show up without a
+reconnect; the selection stays on the same item by name. If you manually toggle
+topic subscriptions, those choices are kept in the client state and re-applied
+after reconnect instead of subscribing to every topic again. Topics that disappear from the latest agent topic list are
 removed from the Topics pane and reconnect request until the agent advertises
 them again, which also drops their cached sample/count history.
 
@@ -55,6 +69,10 @@ state after reconnect.
 
 The Nodes tab lists ROS 2 nodes and shows publishers, subscribers, and services
 for the selected node.
+
+Press `l` to load the selected node's logger level into the detail pane and
+`L` to set it to the next level (DEBUG, INFO, WARN, ERROR, FATAL, then back to
+DEBUG). See [Logger Levels](../features/node-introspection.md#logger-levels).
 
 ## Logs
 

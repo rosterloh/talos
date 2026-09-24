@@ -1,8 +1,11 @@
 use super::messages::{Request, Response};
 use super::params::{ParamInfo, ParamValue};
 use super::types::{
+    Durability, EndpointInfo, History, QosInfo, Reliability, logger_level_name, parse_logger_level,
+};
+use super::types::{
     DynValue, JointInfo, JointLimits, JointType, NodeInfo, PoseInfo, StreamHeader, Timestamp,
-    TopicFrame, TopicInfo, TopicSub,
+    TopicFrame, TopicInfo, TopicStats, TopicSub,
 };
 
 fn round_trip_request(req: &Request) {
@@ -330,4 +333,136 @@ fn response_parameter_set() {
         successful: true,
         reason: String::new(),
     });
+}
+
+#[test]
+fn topic_stats_round_trip() {
+    round_trip_request(&Request::GetTopicStats);
+    round_trip_response(&Response::TopicStats(vec![TopicStats {
+        topic: "/scan".into(),
+        rate_hz: 10.0,
+        bandwidth_bps: 2048.0,
+        latency_ms: Some(3.5),
+    }]));
+}
+
+fn qos(reliability: Reliability, durability: Durability, deadline_ms: Option<f64>) -> QosInfo {
+    QosInfo {
+        reliability,
+        durability,
+        history: History::KeepLast { depth: 10 },
+        deadline_ms,
+    }
+}
+
+#[test]
+fn topic_endpoints_round_trip() {
+    round_trip_request(&Request::GetTopicEndpoints {
+        topic: "/scan".into(),
+    });
+    round_trip_response(&Response::TopicEndpoints {
+        topic: "/scan".into(),
+        publishers: vec![EndpointInfo {
+            node_name: "lidar".into(),
+            node_namespace: "/".into(),
+            topic_type: "sensor_msgs/msg/LaserScan".into(),
+            qos: qos(Reliability::BestEffort, Durability::Volatile, None),
+        }],
+        subscribers: vec![],
+    });
+}
+
+#[test]
+fn qos_incompatibilities_follow_ros_rules() {
+    use Durability::*;
+    use Reliability::*;
+    let incompatible = |p: QosInfo, s: QosInfo| p.incompatibility_with(&s).is_some();
+    assert!(incompatible(
+        qos(BestEffort, Volatile, None),
+        qos(Reliable, Volatile, None)
+    ));
+    assert!(!incompatible(
+        qos(Reliable, Volatile, None),
+        qos(BestEffort, Volatile, None)
+    ));
+    assert!(incompatible(
+        qos(Reliable, Volatile, None),
+        qos(Reliable, TransientLocal, None)
+    ));
+    assert!(!incompatible(
+        qos(Reliable, TransientLocal, None),
+        qos(Reliable, Volatile, None)
+    ));
+    // Deadline: the publisher must promise at least as often as requested.
+    assert!(incompatible(
+        qos(Reliable, Volatile, None),
+        qos(Reliable, Volatile, Some(100.0))
+    ));
+    assert!(incompatible(
+        qos(Reliable, Volatile, Some(200.0)),
+        qos(Reliable, Volatile, Some(100.0))
+    ));
+    assert!(!incompatible(
+        qos(Reliable, Volatile, Some(50.0)),
+        qos(Reliable, Volatile, Some(100.0))
+    ));
+    // Policies left to the RMW can't be judged.
+    assert!(!incompatible(
+        qos(Reliability::SystemDefault, Durability::SystemDefault, None),
+        qos(Reliable, TransientLocal, None)
+    ));
+}
+
+#[test]
+fn qos_display_is_compact() {
+    let mut q = qos(Reliability::BestEffort, Durability::TransientLocal, None);
+    assert_eq!(q.to_string(), "best_effort transient_local keep_last(10)");
+    q.reliability = Reliability::SystemDefault;
+    q.durability = Durability::BestAvailable;
+    q.history = History::KeepAll;
+    q.deadline_ms = Some(100.0);
+    assert_eq!(
+        q.to_string(),
+        "default best_available keep_all deadline 100ms"
+    );
+    q.reliability = Reliability::BestAvailable;
+    q.durability = Durability::SystemDefault;
+    q.history = History::SystemDefault { depth: 3 };
+    q.deadline_ms = None;
+    assert_eq!(q.to_string(), "best_available default default(3)");
+}
+
+#[test]
+fn logger_level_round_trip() {
+    round_trip_request(&Request::GetLoggerLevel {
+        node: "/talos_agent".into(),
+        logger: String::new(),
+    });
+    round_trip_request(&Request::SetLoggerLevel {
+        node: "/talos_agent".into(),
+        logger: "rclcpp".into(),
+        level: 10,
+    });
+    round_trip_response(&Response::LoggerLevel {
+        node: "/talos_agent".into(),
+        logger: "talos_agent".into(),
+        level: 20,
+    });
+    round_trip_response(&Response::LoggerLevelSet {
+        node: "/talos_agent".into(),
+        logger: "talos_agent".into(),
+        successful: false,
+        reason: "bad level".into(),
+    });
+}
+
+#[test]
+fn logger_level_names() {
+    assert_eq!(logger_level_name(0), Some("UNSET"));
+    assert_eq!(logger_level_name(30), Some("WARN"));
+    assert_eq!(logger_level_name(15), None);
+    assert_eq!(parse_logger_level("debug"), Some(10));
+    assert_eq!(parse_logger_level(" Warning "), Some(30));
+    assert_eq!(parse_logger_level("FATAL"), Some(50));
+    assert_eq!(parse_logger_level("verbose"), None);
 }

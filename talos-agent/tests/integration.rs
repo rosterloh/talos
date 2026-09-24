@@ -58,14 +58,18 @@ fn test_config_uds(socket_path: &str) -> Arc<AgentConfig> {
 }
 
 fn inject(router: &RouterHandle, topic: &str) {
+    inject_value(router, topic, DynValue::Bool(true));
+}
+
+fn inject_value(router: &RouterHandle, topic: &str, data: DynValue) {
     let response = Response::TopicData {
         topic: topic.to_string(),
         type_name: "test/Type".to_string(),
         stamp: Timestamp { sec: 1, nanosec: 0 },
-        data: DynValue::Bool(true),
+        data,
     };
     // Use try_lock to avoid blocking in test helpers
-    if let Ok(r) = router.try_lock() {
+    if let Ok(mut r) = router.try_lock() {
         r.route(&response);
     }
 }
@@ -321,6 +325,157 @@ async fn uds_parameter_round_trip_against_live_node() {
     }
 }
 
+#[tokio::test]
+async fn uds_get_logger_level_without_graph_returns_error() {
+    let dir = TempDir::new().unwrap();
+    let path = dir
+        .path()
+        .join("loglevel.sock")
+        .to_string_lossy()
+        .into_owned();
+
+    let config = test_config_uds(&path);
+    spawn_uds_server(config).await;
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+    let response = client
+        .request(Request::GetLoggerLevel {
+            node: "/some_node".to_string(),
+            logger: String::new(),
+        })
+        .await
+        .unwrap();
+
+    match response {
+        Response::Error(msg) => assert!(
+            msg.contains("not available"),
+            "expected node-unavailable error, got: {msg}"
+        ),
+        other => panic!("unexpected response: {other:?}"),
+    }
+}
+
+/// End-to-end logger level round trip against a live ROS 2 node.
+///
+/// rclrs can't host the rclcpp logger services, so the test node serves its
+/// own `get_logger_levels` / `set_logger_levels` backed by a map, which is
+/// enough to drive the agent's clients through DDS.
+#[tokio::test]
+async fn uds_logger_level_round_trip_against_live_node() {
+    use rclrs::CreateBasicExecutor;
+    use ros_env::rcl_interfaces;
+    use std::sync::Mutex as StdMutex;
+
+    const NODE: &str = "/talos_logger_live_test";
+
+    let (node_tx, node_rx) = std::sync::mpsc::channel::<rclrs::Node>();
+    std::thread::spawn(move || {
+        let context = rclrs::Context::default_from_env().expect("rclrs context");
+        let mut executor = context.create_basic_executor();
+        let node = executor
+            .create_node("talos_logger_live_test")
+            .expect("create node");
+        let levels = Arc::new(StdMutex::new(HashMap::<String, u32>::new()));
+
+        let get_levels = Arc::clone(&levels);
+        let _get = node
+            .create_service::<rcl_interfaces::srv::GetLoggerLevels, _>(
+                "/talos_logger_live_test/get_logger_levels",
+                move |req: rcl_interfaces::srv::GetLoggerLevels_Request| {
+                    let levels = get_levels.lock().unwrap();
+                    rcl_interfaces::srv::GetLoggerLevels_Response {
+                        levels: req
+                            .names
+                            .into_iter()
+                            .map(|name| rcl_interfaces::msg::LoggerLevel {
+                                level: levels.get(&name).copied().unwrap_or(0),
+                                name,
+                            })
+                            .collect(),
+                    }
+                },
+            )
+            .expect("create get_logger_levels");
+        let _set = node
+            .create_service::<rcl_interfaces::srv::SetLoggerLevels, _>(
+                "/talos_logger_live_test/set_logger_levels",
+                move |req: rcl_interfaces::srv::SetLoggerLevels_Request| {
+                    let mut map = levels.lock().unwrap();
+                    rcl_interfaces::srv::SetLoggerLevels_Response {
+                        results: req
+                            .levels
+                            .into_iter()
+                            .map(|l| {
+                                map.insert(l.name, l.level);
+                                rcl_interfaces::msg::SetLoggerLevelsResult {
+                                    successful: true,
+                                    reason: String::new(),
+                                }
+                            })
+                            .collect(),
+                    }
+                },
+            )
+            .expect("create set_logger_levels");
+        node_tx.send(Arc::clone(&node)).expect("send node handle");
+        executor.spin(rclrs::SpinOptions::default());
+    });
+    let node = node_rx.recv().expect("receive node handle");
+
+    let dir = TempDir::new().unwrap();
+    let path = dir
+        .path()
+        .join("logger_live.sock")
+        .to_string_lossy()
+        .into_owned();
+    let config = test_config_uds(&path);
+
+    let graph: GraphHandle = Arc::new(Mutex::new(Some(node)));
+    tokio::spawn(async move {
+        let _ =
+            talos_agent::server::run(config, make_router(), make_joint_publisher(), graph).await;
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+
+    let response = client
+        .request(Request::SetLoggerLevel {
+            node: NODE.into(),
+            logger: String::new(),
+            level: 10,
+        })
+        .await
+        .unwrap();
+    match response {
+        Response::LoggerLevelSet {
+            logger,
+            successful,
+            reason,
+            ..
+        } => {
+            assert!(successful, "set rejected: {reason}");
+            assert_eq!(logger, "talos_logger_live_test");
+        }
+        other => panic!("set: unexpected response: {other:?}"),
+    }
+
+    let response = client
+        .request(Request::GetLoggerLevel {
+            node: NODE.into(),
+            logger: String::new(),
+        })
+        .await
+        .unwrap();
+    match response {
+        Response::LoggerLevel { logger, level, .. } => {
+            assert_eq!(logger, "talos_logger_live_test");
+            assert_eq!(level, 10, "level after set");
+        }
+        other => panic!("get: unexpected response: {other:?}"),
+    }
+}
+
 #[cfg(feature = "quic")]
 #[tokio::test]
 async fn quic_list_poses_returns_configured_poses() {
@@ -461,6 +616,77 @@ async fn quic_client_subscribes_and_receives_data() {
     assert_eq!(topic, "/odom");
 }
 
+/// A 10 MiB frame is within the protocol's 16 MiB limit and must reach a QUIC
+/// client; the data-stream codec used to cap frames at 8 MiB and kill the stream.
+#[cfg(feature = "quic")]
+#[tokio::test]
+async fn quic_client_receives_frames_above_8_mib() {
+    use talos_common::config::QuicTransportConfig;
+    use talos_common::session::QuicProtocolClient;
+    use talos_common::transport::quic::QuicTransport;
+
+    let config = Arc::new(AgentConfig {
+        transport: TransportSettings {
+            uds: None,
+            quic: Some(QuicTransportConfig {
+                bind_addr: "127.0.0.1:0".to_string(),
+                cert_path: None,
+                key_path: None,
+            }),
+        },
+        subscriptions: vec![SubscriptionConfig {
+            topic: "/cloud".to_string(),
+            msg_type: "sensor_msgs/msg/PointCloud2".to_string(),
+            qos: QosProfile::Default,
+        }],
+        control: None,
+        poses: Default::default(),
+    });
+
+    let router = make_router();
+    let endpoint = QuicTransport::bind(config.transport.quic.as_ref().unwrap())
+        .await
+        .unwrap();
+    let quic_addr = endpoint.local_addr().unwrap();
+    {
+        let r = Arc::clone(&router);
+        let cfg = Arc::clone(&config);
+        tokio::spawn(async move {
+            if let Some(inc) = endpoint.accept().await
+                && let Ok(conn) = inc.await
+            {
+                talos_agent::server::handle_quic_client(
+                    conn,
+                    cfg,
+                    r,
+                    make_joint_publisher(),
+                    make_graph_handle(),
+                )
+                .await;
+            }
+        });
+    }
+
+    let mut client = QuicProtocolClient::connect(&quic_addr.to_string())
+        .await
+        .unwrap();
+    client.subscribe(&["/cloud".to_string()]).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    inject_value(
+        &router,
+        "/cloud",
+        DynValue::Bytes(vec![0; 10 * 1024 * 1024]),
+    );
+
+    let (topic, frame) = tokio::time::timeout(Duration::from_secs(5), client.recv_data())
+        .await
+        .expect("timed out waiting for large QUIC frame")
+        .expect("recv_data error");
+    assert_eq!(topic, "/cloud");
+    assert!(matches!(frame.data, DynValue::Bytes(b) if b.len() == 10 * 1024 * 1024));
+}
+
 // ── 8.3: Dual-mode agent serves UDS and QUIC simultaneously ─────────────────
 
 #[cfg(feature = "quic")]
@@ -590,5 +816,208 @@ async fn uds_unsubscribe_stops_data_delivery() {
     assert!(
         result.is_err(),
         "recv_data should have timed out after unsubscribe, but got a frame"
+    );
+}
+
+/// A frame over the 16 MiB protocol limit must be dropped, not tear down the
+/// client's connection.
+#[tokio::test]
+async fn uds_oversized_frame_is_dropped_without_disconnecting() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("big.sock").to_string_lossy().into_owned();
+    let router = spawn_uds_server(test_config_uds(&path)).await;
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+    client.subscribe(&["/odom".to_string()]).await.unwrap();
+
+    inject_value(&router, "/odom", DynValue::Bytes(vec![0; 17 * 1024 * 1024]));
+    inject(&router, "/odom");
+
+    let (topic, frame) = tokio::time::timeout(Duration::from_secs(2), client.recv_data())
+        .await
+        .expect("timed out: oversized frame closed the session")
+        .expect("recv_data error");
+    assert_eq!(topic, "/odom");
+    assert_eq!(frame.data, DynValue::Bool(true));
+}
+
+/// A topic stream the client isn't reading (QUIC flow control is exhausted)
+/// must not stall the control stream for that client.
+#[cfg(feature = "quic")]
+#[tokio::test]
+async fn quic_stalled_topic_stream_does_not_block_control() {
+    use futures_util::{SinkExt, StreamExt};
+    use talos_common::config::QuicTransportConfig;
+    use talos_common::protocol::codec::BincodeCodec;
+    use talos_common::transport::quic::QuicTransport;
+    use tokio_util::codec::{FramedRead, FramedWrite};
+
+    let mut config = (*test_config_uds("/unused.sock")).clone();
+    config.transport.uds = None;
+    config.transport.quic = Some(QuicTransportConfig {
+        bind_addr: "127.0.0.1:0".to_string(),
+        cert_path: None,
+        key_path: None,
+    });
+    let config = Arc::new(config);
+    let router = make_router();
+    let endpoint = QuicTransport::bind(config.transport.quic.as_ref().unwrap())
+        .await
+        .unwrap();
+    let addr = endpoint.local_addr().unwrap();
+    {
+        let r = Arc::clone(&router);
+        let cfg = Arc::clone(&config);
+        tokio::spawn(async move {
+            if let Some(inc) = endpoint.accept().await
+                && let Ok(conn) = inc.await
+            {
+                talos_agent::server::handle_quic_client(
+                    conn,
+                    cfg,
+                    r,
+                    make_joint_publisher(),
+                    make_graph_handle(),
+                )
+                .await;
+            }
+        });
+    }
+
+    // Raw client that never accepts its data streams.
+    let conn = QuicTransport::connect(addr).await.unwrap();
+    let (send, recv) = conn.open_bi().await.unwrap();
+    let mut tx = FramedWrite::new(send, BincodeCodec::<Request>::new());
+    let mut rx = FramedRead::new(recv, BincodeCodec::<Response>::new());
+    tx.send(Request::Subscribe {
+        topics: vec!["/odom".into()],
+    })
+    .await
+    .unwrap();
+    assert!(matches!(
+        rx.next().await,
+        Some(Ok(Response::Subscribed { .. }))
+    ));
+
+    // Far more than the stream's flow-control window.
+    for _ in 0..32 {
+        inject_value(&router, "/odom", DynValue::Bytes(vec![0; 1024 * 1024]));
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    tx.send(Request::ListPoses).await.unwrap();
+    let reply = tokio::time::timeout(Duration::from_secs(2), rx.next())
+        .await
+        .expect("control stream blocked behind a stalled topic stream");
+    assert!(matches!(reply, Some(Ok(Response::PoseList(_)))));
+}
+
+#[tokio::test]
+async fn uds_get_topic_stats_reports_agent_side_rate() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("stats.sock").to_string_lossy().into_owned();
+    let router = spawn_uds_server(test_config_uds(&path)).await;
+
+    // No client subscribes: stats count every bridged message regardless.
+    let start = std::time::Instant::now();
+    router.lock().await.tick_stats(start);
+    for _ in 0..5 {
+        inject(&router, "/odom");
+    }
+    router
+        .lock()
+        .await
+        .tick_stats(start + Duration::from_secs(1));
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+    match client.request(Request::GetTopicStats).await.unwrap() {
+        Response::TopicStats(stats) => {
+            assert_eq!(stats.len(), 1);
+            assert_eq!(stats[0].topic, "/odom");
+            assert!(
+                (stats[0].rate_hz - 5.0).abs() < 1e-6,
+                "{}",
+                stats[0].rate_hz
+            );
+        }
+        other => panic!("unexpected response: {other:?}"),
+    }
+}
+
+/// Endpoint QoS comes from the live ROS graph, and a best-effort publisher
+/// paired with a reliable subscriber is flagged as incompatible.
+#[tokio::test]
+async fn uds_topic_endpoints_report_live_qos() {
+    use rclrs::{CreateBasicExecutor, IntoPrimitiveOptions};
+    use ros_env::std_msgs;
+    use talos_common::protocol::types::Reliability;
+
+    const TOPIC: &str = "/talos_qos_probe";
+
+    let (node_tx, node_rx) = std::sync::mpsc::channel::<rclrs::Node>();
+    std::thread::spawn(move || {
+        let context = rclrs::Context::default_from_env().expect("rclrs context");
+        let mut executor = context.create_basic_executor();
+        let node = executor.create_node("talos_qos_test").expect("create node");
+        let _publisher = node
+            .create_publisher::<std_msgs::msg::String>(TOPIC.sensor_data_qos())
+            .expect("publisher");
+        let _subscription = node
+            .create_subscription::<std_msgs::msg::String, _>(
+                TOPIC.reliable(),
+                |_msg: std_msgs::msg::String| {},
+            )
+            .expect("subscription");
+        node_tx.send(Arc::clone(&node)).expect("send node handle");
+        executor.spin(rclrs::SpinOptions::default());
+    });
+    let node = node_rx.recv().expect("receive node handle");
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("qos.sock").to_string_lossy().into_owned();
+    let graph: GraphHandle = Arc::new(Mutex::new(Some(node)));
+    let config = test_config_uds(&path);
+    tokio::spawn(async move {
+        let _ =
+            talos_agent::server::run(config, make_router(), make_joint_publisher(), graph).await;
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+
+    // Graph discovery is asynchronous; poll until both endpoints show up.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let (publishers, subscribers) = loop {
+        let response = client
+            .request(Request::GetTopicEndpoints {
+                topic: TOPIC.into(),
+            })
+            .await
+            .unwrap();
+        if let Response::TopicEndpoints {
+            publishers,
+            subscribers,
+            ..
+        } = response
+            && !publishers.is_empty()
+            && !subscribers.is_empty()
+        {
+            break (publishers, subscribers);
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "endpoints never appeared"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+
+    assert_eq!(publishers[0].node_name, "talos_qos_test");
+    assert_eq!(publishers[0].topic_type, "std_msgs/msg/String");
+    assert_eq!(publishers[0].qos.reliability, Reliability::BestEffort);
+    assert_eq!(subscribers[0].qos.reliability, Reliability::Reliable);
+    assert!(
+        publishers[0]
+            .qos
+            .incompatibility_with(&subscribers[0].qos)
+            .is_some()
     );
 }

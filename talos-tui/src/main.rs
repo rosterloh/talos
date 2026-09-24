@@ -8,12 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind};
-use crossterm::execute;
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
+use ratatui::DefaultTerminal;
 use talos_common::protocol::messages::Request;
 use tokio::sync::mpsc;
 
@@ -72,11 +67,8 @@ fn main() -> io::Result<()> {
         std::process::exit(1);
     }
 
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    // Also installs a panic hook that restores the terminal before unwinding.
+    let mut terminal = ratatui::init();
 
     let state = Arc::new(Mutex::new(AppState::default()));
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<Request>();
@@ -92,19 +84,12 @@ fn main() -> io::Result<()> {
 
     let result = run_app(&mut terminal, &state, &cmd_tx);
 
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-
-    if let Err(e) = result {
-        eprintln!("Error: {e}");
-    }
-
-    Ok(())
+    ratatui::restore();
+    result
 }
 
 fn run_app(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    terminal: &mut DefaultTerminal,
     state: &Arc<Mutex<AppState>>,
     cmd_tx: &mpsc::UnboundedSender<Request>,
 ) -> io::Result<()> {

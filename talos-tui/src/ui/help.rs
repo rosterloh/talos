@@ -36,6 +36,18 @@ pub fn draw(f: &mut Frame, area: Rect) {
             Span::styled("  ←/→      ", Style::default().fg(Color::Yellow)),
             Span::raw("Collapse / expand tree"),
         ]),
+        Line::from(vec![
+            Span::styled("  r        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Refresh topic and node lists"),
+        ]),
+        Line::from(vec![
+            Span::styled("  /        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Filter list / search log (case-insensitive substring)"),
+        ]),
+        Line::from(vec![
+            Span::styled("           ", Style::default().fg(Color::Yellow)),
+            Span::raw("←/→ cursor, Ctrl-U clear, Enter apply, Esc cancel"),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
             "Topics Tab",
@@ -46,6 +58,21 @@ pub fn draw(f: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  s        ", Style::default().fg(Color::Yellow)),
             Span::raw("Toggle selected topic subscription (either pane)"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Nodes Tab",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  l        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Load selected node's logger level"),
+        ]),
+        Line::from(vec![
+            Span::styled("  L        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Cycle selected node's logger level"),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -66,7 +93,11 @@ pub fn draw(f: &mut Frame, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(vec![
-            Span::styled("  p        ", Style::default().fg(Color::Yellow)),
+            Span::styled("  e        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Edit selected joint position"),
+        ]),
+        Line::from(vec![
+            Span::styled("  x        ", Style::default().fg(Color::Yellow)),
             Span::raw("Execute selected pose"),
         ]),
         Line::from(vec![

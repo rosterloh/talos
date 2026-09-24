@@ -7,6 +7,106 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Added
+
+- The CLI has a global `--json` flag. `list-topics`, `list-nodes`,
+  `list-params` and `get-param` print a JSON array, and `echo` prints one
+  `{topic, stamp, data}` object per line, with message data as plain JSON
+  (byte arrays as base64, NaN/inf as `null`). `set-param` ignores the flag.
+
+- New `talos-cli hz <topic> [--duration <s>]` prints the agent-measured rate,
+  bandwidth and latency of a topic once a second, or a JSON object per second
+  with `--json`.
+
+- `/` in the TUI opens a filter prompt for the current list: topics, nodes,
+  parameters, or log messages (the Log search). Matching is a case-insensitive
+  substring and updates as you type; `←`/`→` move the cursor, `Ctrl-U` clears,
+  `Enter` applies (empty clears the filter) and `Esc` restores the previous
+  filter. The active filter is shown in the pane title (in the filter bar on
+  the Log tab). The parameter value
+  editor uses the same text input, so it gains cursor movement and `Ctrl-U`.
+- Show and set a node's logger level through its `get_logger_levels` /
+  `set_logger_levels` services, with new `GetLoggerLevel` and
+  `SetLoggerLevel` agent requests. Use `talos-cli log-level <node> [level]`,
+  or `l` (load) and `L` (cycle level) on the TUI Nodes tab. The target node
+  must enable its logger services, e.g. rclcpp
+  `NodeOptions().enable_logger_service(true)`.
+
+- The topic detail pane in the TUI now lists each publisher and subscriber on
+  the selected topic, with its reliability, durability, history and deadline,
+  from a new `GetTopicEndpoints` agent request. Subscribers that can never
+  match a publisher are flagged in red, e.g. a best-effort publisher with a
+  reliable subscriber. Such a mismatch is the usual reason a topic shows no
+  data.
+
+- The agent now measures rate, bandwidth and header-stamp latency for every
+  bridged topic, before any per-client frame dropping, and serves them through
+  a new `GetTopicStats` request. The TUI polls it every second and shows the
+  values in the topic list and detail pane, with a 60-second rate sparkline.
+  This replaces the TUI's own Hz estimate from received frames, which read
+  too low when frames were dropped and too high when message timing was
+  jittery. The new requests are not understood by older agents: the agent
+  and its clients must be upgraded together.
+
+### Fixed
+
+- TUI: the topic and node lists now refresh every 2 seconds while connected,
+  so new topics and nodes appear (and new topics are subscribed as usual) and
+  vanished ones are removed without a reconnect. The selection stays on the
+  same topic or node. Press `r` to refresh at once.
+- QUIC clients no longer lose a topic's stream for the rest of the session when
+  a single message is between 8 and 16 MiB. The data-stream decoder now uses
+  the protocol's 16 MiB frame limit instead of the 8 MiB codec default.
+- A message over the 16 MiB frame limit is now logged and dropped by the agent.
+  Before, it disconnected UDS clients (which reconnected into the same frame)
+  or closed that topic's QUIC stream.
+- The agent now queues at most 1024 undelivered frames per client and drops
+  new frames beyond that. A slow client can no longer grow agent memory
+  without bound.
+- `talos-agent` now exits with an error when no transport is configured.
+- TUI: fixed a crash when truncating long string values that contain
+  multi-byte UTF-8 characters.
+- TUI: the terminal is restored if the TUI panics, and errors from the app
+  loop now give a non-zero exit code.
+- TUI: topic, node, parameter, joint, pose and log lists now scroll to keep
+  the selection visible.
+- TUI: a rejected parameter set is no longer hidden by the refresh that
+  follows it, and agent errors for parameter loads and sets are shown instead
+  of leaving "loading…" on screen.
+- TUI: the status bar and help overlay now show the real Joints key bindings
+  (`e` edit, `x` execute pose, `j`/`o` switch list), and no longer list the
+  Log bindings that don't exist (`n`, `/`).
+- `talos echo` now exits with an error when the agent does not confirm the
+  topic, instead of waiting forever.
+- `talos` no longer panics when its output pipe closes early (e.g.
+  `talos echo /x | head`). It now exits quietly, like other Unix tools.
+- The agent writes each QUIC topic stream from its own task. A stream stalled
+  by flow control now drops only its own frames and no longer blocks control
+  requests or other topics for that client.
+- The agent now refuses to start on a UDS socket that another agent is still
+  serving. Before, it deleted that agent's socket and took it over. A stale
+  socket file is still replaced.
+- TUI: a topic that stops publishing now shows 0 Hz instead of keeping its
+  last rate forever.
+- TUI: the log selection stays on the same entry as new `/rosout` messages
+  arrive, and is clamped when the severity filter shortens the list.
+- TUI: joint and pose commands now show their outcome on the Joints tab.
+  This includes agent errors and the "clamped to limit" note, which was never
+  displayed before.
+- The version bump workflow now also moves the `[workspace]` version in
+  `pixi.toml`, which had been left at 0.1.5; it is set to 1.0.0 to match the
+  release.
+
+### Changed
+
+- The README now links to the published book at
+  <https://rosterloh.github.io/talos/>. The roadmap no longer lists
+  publishing to GitHub Pages as future work, since the Docs workflow already
+  deploys from `main`.
+- Protect `dev` from deletion with a repository ruleset, so the automatic
+  head-branch cleanup no longer deletes it when a `dev` -> `main` release pull
+  request merges.
+
 ## [1.0.0] - 2026-09-24
 
 ### Added

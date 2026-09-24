@@ -1,10 +1,11 @@
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
 use crate::error::Error;
 
-const DEFAULT_MAX_FRAME_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
+/// Largest frame payload accepted on any Talos stream (UDS or QUIC).
+pub const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
 const LENGTH_PREFIX_SIZE: usize = 4;
 
 // bincode's legacy config matches the bincode 1 wire format (fixed-width
@@ -16,6 +17,16 @@ fn wire_config() -> bincode::config::Configuration<
     bincode::config::NoLimit,
 > {
     bincode::config::legacy()
+}
+
+/// Raw Talos framing (4-byte big-endian length prefix, `MAX_FRAME_SIZE` limit)
+/// without decoding the payload, for streams that mix frame types.
+pub fn frame_codec() -> LengthDelimitedCodec {
+    LengthDelimitedCodec::builder()
+        .length_field_length(4)
+        .big_endian()
+        .max_frame_length(MAX_FRAME_SIZE)
+        .new_codec()
 }
 
 /// Serialize a value using the Talos wire format.
@@ -36,7 +47,7 @@ pub struct BincodeCodec<T> {
 impl<T> BincodeCodec<T> {
     pub fn new() -> Self {
         Self {
-            max_frame_size: DEFAULT_MAX_FRAME_SIZE,
+            max_frame_size: MAX_FRAME_SIZE,
             _marker: std::marker::PhantomData,
         }
     }
@@ -103,5 +114,34 @@ impl<T: Serialize> Encoder<T> for BincodeCodec<T> {
         dst.put_u32(payload.len() as u32);
         dst.put_slice(&payload);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bytes::{BufMut, BytesMut};
+    use tokio_util::codec::Decoder;
+
+    use super::*;
+
+    fn framed(len: usize) -> BytesMut {
+        let mut buf = BytesMut::with_capacity(4 + len);
+        buf.put_u32(len as u32);
+        buf.put_bytes(0, len);
+        buf
+    }
+
+    /// The QUIC data streams decode with this codec. Its limit must match
+    /// `MAX_FRAME_SIZE`, not `LengthDelimitedCodec`'s 8 MiB default, or topic
+    /// streams die on large messages.
+    #[test]
+    fn frame_codec_uses_the_protocol_frame_limit() {
+        let mut codec = frame_codec();
+        let frame = codec
+            .decode(&mut framed(10 * 1024 * 1024))
+            .unwrap()
+            .unwrap();
+        assert_eq!(frame.len(), 10 * 1024 * 1024);
+        assert!(codec.decode(&mut framed(MAX_FRAME_SIZE + 1)).is_err());
     }
 }

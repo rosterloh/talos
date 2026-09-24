@@ -18,3 +18,6 @@ tracing-subscriber = { workspace = true }
 futures-util = { version = "0.3", features = ["sink"] }
 ratatui = "0.30"
 crossterm = "0.29"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

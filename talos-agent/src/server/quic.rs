@@ -4,9 +4,12 @@ use bytes::{BufMut, BytesMut};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use talos_common::config::AgentConfig;
-use talos_common::protocol::codec::BincodeCodec;
+use talos_common::error::Error;
+use talos_common::protocol::codec::{BincodeCodec, MAX_FRAME_SIZE};
 use talos_common::protocol::messages::{Request, Response};
 use talos_common::protocol::types::{StreamHeader, TopicFrame, TopicSub};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{error, info, warn};
 
@@ -76,7 +79,9 @@ pub async fn handle_quic_client(
     let mut control_tx = FramedWrite::new(send, BincodeCodec::<Response>::new());
     let mut control_rx = FramedRead::new(recv, BincodeCodec::<Request>::new());
 
-    let mut topic_streams: std::collections::HashMap<String, quinn::SendStream> =
+    // One writer task per topic stream, so a stream stalled by QUIC flow
+    // control only drops its own frames instead of blocking this loop.
+    let mut topic_streams: std::collections::HashMap<String, mpsc::Sender<TopicFrame>> =
         std::collections::HashMap::new();
 
     loop {
@@ -105,7 +110,8 @@ pub async fn handle_quic_client(
                                             type_name: ts.type_name.clone(),
                                         };
                                         if write_quic_frame(&mut send, &header).await.is_ok() {
-                                            topic_streams.insert(ts.topic.clone(), send);
+                                            topic_streams
+                                                .insert(ts.topic.clone(), spawn_topic_writer(ts.topic.clone(), send));
                                         } else {
                                             warn!(topic = %ts.topic, "failed to write stream header");
                                         }
@@ -120,15 +126,14 @@ pub async fn handle_quic_client(
                     Some(Ok(Request::Unsubscribe { topics })) => {
                         router.lock().await.unsubscribe(client_id, &topics);
                         for topic in &topics {
-                            if let Some(mut send) = topic_streams.remove(topic) {
-                                let _ = send.finish();
-                            }
+                            // Dropping the sender lets the writer finish the stream.
+                            topic_streams.remove(topic);
                         }
                         let _ = control_tx.send(Response::Unsubscribed { topics }).await;
                     }
                     Some(Ok(other)) => {
                         let response =
-                            handle_control_request(&other, &config, &joint_publisher, &graph_handle).await;
+                            handle_control_request(&other, &config, &joint_publisher, &graph_handle, &router).await;
                         let _ = control_tx.send(response).await;
                     }
                     Some(Err(e)) => {
@@ -143,34 +148,55 @@ pub async fn handle_quic_client(
             }
             data = data_rx.recv() => {
                 if let Some(Response::TopicData { topic, stamp, data, .. }) = data
-                    && let Some(send) = topic_streams.get_mut(&topic)
+                    && let Some(tx) = topic_streams.get(&topic)
+                    && let Err(TrySendError::Closed(_)) = tx.try_send(TopicFrame { stamp, data })
                 {
-                    let frame = TopicFrame { stamp, data };
-                    if write_quic_frame(send, &frame).await.is_err() {
-                        topic_streams.remove(&topic);
-                    }
+                    // A full queue drops the frame; a closed one means the stream failed.
+                    topic_streams.remove(&topic);
                 }
             }
         }
     }
 
-    for (_, mut send) in topic_streams {
-        let _ = send.finish();
-    }
+    drop(topic_streams);
     router.lock().await.deregister(client_id);
     info!("QUIC client session ended");
+}
+
+/// Frames buffered per topic stream while QUIC flow control holds it back.
+const TOPIC_STREAM_QUEUE: usize = 16;
+
+fn spawn_topic_writer(topic: String, mut send: quinn::SendStream) -> mpsc::Sender<TopicFrame> {
+    let (tx, mut rx) = mpsc::channel::<TopicFrame>(TOPIC_STREAM_QUEUE);
+    tokio::spawn(async move {
+        while let Some(frame) = rx.recv().await {
+            match write_quic_frame(&mut send, &frame).await {
+                Ok(()) => {}
+                Err(e @ Error::FrameTooLarge { .. }) => {
+                    warn!(topic = %topic, "dropping topic data: {e}");
+                }
+                Err(_) => return,
+            }
+        }
+        let _ = send.finish();
+    });
+    tx
 }
 
 /// Write a single length-prefixed bincode frame to a QUIC SendStream.
 async fn write_quic_frame<T: Serialize>(
     send: &mut quinn::SendStream,
     value: &T,
-) -> Result<(), String> {
-    let payload = talos_common::protocol::codec::to_vec(value).map_err(|e| e.to_string())?;
-    let len: u32 = u32::try_from(payload.len())
-        .map_err(|_| format!("frame too large: {} bytes exceeds u32::MAX", payload.len()))?;
+) -> Result<(), Error> {
+    let payload = talos_common::protocol::codec::to_vec(value)?;
+    if payload.len() > MAX_FRAME_SIZE {
+        return Err(Error::FrameTooLarge {
+            size: payload.len(),
+            max: MAX_FRAME_SIZE,
+        });
+    }
     let mut buf = BytesMut::with_capacity(4 + payload.len());
-    buf.put_u32(len);
+    buf.put_u32(payload.len() as u32);
     buf.put_slice(&payload);
-    send.write_all(&buf).await.map_err(|e| e.to_string())
+    send.write_all(&buf).await.map_err(|e| Error::Io(e.into()))
 }

@@ -81,9 +81,15 @@ pub async fn run(
 /// 1. Sends `ListTopics` and `ListNodes` to populate the UI.
 /// 2. Subscribes to the state-owned desired topic set.
 /// 3. Enters a select loop that concurrently handles incoming data frames
-///    and outgoing commands from the UI.
+///    and outgoing commands from the UI, and re-fetches the topic and node
+///    lists every [`LIST_REFRESH_INTERVAL`] (or at once on a UI `ListTopics`).
 ///
 /// On reconnect, this function is called again with a fresh client.
+/// How often to fetch agent-side topic stats (matches the agent's window).
+const STATS_POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// How often to re-fetch the topic and node lists.
+const LIST_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+
 async fn connect_and_run<C: ProtocolClient>(
     mut client: C,
     state: &Arc<Mutex<AppState>>,
@@ -121,6 +127,15 @@ async fn connect_and_run<C: ProtocolClient>(
         s.handle_response(resp);
     }
 
+    let mut stats_tick = tokio::time::interval_at(
+        tokio::time::Instant::now() + STATS_POLL_INTERVAL,
+        STATS_POLL_INTERVAL,
+    );
+    let mut list_tick = tokio::time::interval_at(
+        tokio::time::Instant::now() + LIST_REFRESH_INTERVAL,
+        LIST_REFRESH_INTERVAL,
+    );
+
     // ── subscribe to the desired topics for this session ─────────────────────
     if !desired_topics.is_empty() {
         {
@@ -157,6 +172,53 @@ async fn connect_and_run<C: ProtocolClient>(
     // ── main loop ─────────────────────────────────────────────────────────────
     loop {
         tokio::select! {
+            _ = stats_tick.tick() => {
+                let response = client
+                    .request(Request::GetTopicStats)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let endpoint_topic = {
+                    let mut s = state.lock().unwrap();
+                    s.handle_response(response);
+                    s.endpoint_query_topic()
+                };
+                if let Some(topic) = endpoint_topic {
+                    let response = client
+                        .request(Request::GetTopicEndpoints { topic })
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    state.lock().unwrap().handle_endpoints_response(response);
+                }
+            }
+            _ = list_tick.tick() => {
+                let response = client
+                    .request(Request::ListTopics)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                if let Response::TopicList(ref topics) = response {
+                    for t in topics {
+                        type_map.insert(t.name.clone(), t.type_name.clone());
+                    }
+                }
+                let new_topics = {
+                    let mut s = state.lock().unwrap();
+                    s.handle_response(response);
+                    s.desired_topics_to_subscribe()
+                };
+                if !new_topics.is_empty() {
+                    subscribe_topics(&mut client, state, new_topics).await;
+                }
+                match client
+                    .request(Request::ListNodes)
+                    .await
+                    .map_err(|e| e.to_string())?
+                {
+                    // Not routed to `handle_response`, which would take it as
+                    // the reply to a pending parameter request.
+                    Response::Error(e) => warn!("failed to list nodes: {e}"),
+                    response => state.lock().unwrap().handle_response(response),
+                }
+            }
             data_result = client.recv_data() => {
                 match data_result {
                     Ok((topic, frame)) => {
@@ -181,27 +243,10 @@ async fn connect_and_run<C: ProtocolClient>(
                     Some(request) => {
                         match request {
                             Request::Subscribe { topics } => {
-                                {
-                                    let mut s = state.lock().unwrap();
-                                    s.mark_topics_pending_subscribe(&topics);
-                                }
-                                match client.subscribe(&topics).await {
-                                    Ok(subs) => {
-                                        let mut s = state.lock().unwrap();
-                                        s.handle_response(Response::Subscribed { topics: subs });
-                                    }
-                                    Err(e) => {
-                                        let error = e.to_string();
-                                        {
-                                            let mut s = state.lock().unwrap();
-                                            // AppState already recorded the user's desired intent.
-                                            // Preserve it so the next reconnect retries this topic.
-                                            s.mark_subscription_error(&topics, &error);
-                                        }
-                                        warn!(topics = ?topics, "subscribe command failed: {error}");
-                                    }
-                                }
+                                subscribe_topics(&mut client, state, topics).await;
                             }
+                            // The UI's refresh key: re-fetch the lists now.
+                            Request::ListTopics => list_tick.reset_immediately(),
                             Request::Unsubscribe { topics } => {
                                 {
                                     let mut s = state.lock().unwrap();
@@ -226,18 +271,63 @@ async fn connect_and_run<C: ProtocolClient>(
                                     }
                                 }
                             }
-                            other => match client.request(other).await {
+                            other => {
+                                let joint_command = matches!(
+                                    other,
+                                    Request::SetJointPosition { .. } | Request::ExecutePose { .. }
+                                );
+                                let logger_command = matches!(
+                                    other,
+                                    Request::GetLoggerLevel { .. } | Request::SetLoggerLevel { .. }
+                                );
+                                match client.request(other).await {
                                 Ok(response) => {
                                 let mut s = state.lock().unwrap();
-                                s.handle_response(response);
+                                if joint_command {
+                                    s.handle_joint_command_response(response);
+                                } else if logger_command {
+                                    s.handle_logger_response(response);
+                                } else {
+                                    s.handle_response(response);
+                                }
                             }
                                 Err(e) => return Err(e.to_string()),
-                            },
+                            }
+                            }
                         }
                     }
                     None => return Ok(()),
                 }
             }
+        }
+    }
+}
+
+/// Subscribe to `topics` mid-session. A failure marks the topics as errored
+/// but keeps the session alive.
+async fn subscribe_topics<C: ProtocolClient>(
+    client: &mut C,
+    state: &Arc<Mutex<AppState>>,
+    topics: Vec<String>,
+) {
+    {
+        let mut s = state.lock().unwrap();
+        s.mark_topics_pending_subscribe(&topics);
+    }
+    match client.subscribe(&topics).await {
+        Ok(subs) => {
+            let mut s = state.lock().unwrap();
+            s.handle_response(Response::Subscribed { topics: subs });
+        }
+        Err(e) => {
+            let error = e.to_string();
+            {
+                let mut s = state.lock().unwrap();
+                // AppState already recorded the user's desired intent.
+                // Preserve it so the next reconnect retries this topic.
+                s.mark_subscription_error(&topics, &error);
+            }
+            warn!(topics = ?topics, "subscribe command failed: {error}");
         }
     }
 }
@@ -328,6 +418,19 @@ mod tests {
                         .collect(),
                 }),
                 Request::Unsubscribe { topics } => Ok(Response::Unsubscribed { topics }),
+                Request::GetTopicStats => Ok(Response::TopicStats(vec![])),
+                // Queued replies first, then an empty list for periodic refreshes.
+                Request::ListNodes => Ok(self
+                    .request_responses
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .unwrap_or(Response::NodeList(vec![]))),
+                Request::GetTopicEndpoints { topic } => Ok(Response::TopicEndpoints {
+                    topic,
+                    publishers: vec![],
+                    subscribers: vec![],
+                }),
                 _ => self
                     .request_responses
                     .lock()
@@ -444,6 +547,68 @@ mod tests {
             second_client.subscribe_calls(),
             vec![vec!["/camera".to_string()]]
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn topic_stats_and_selected_endpoints_are_polled_every_second() {
+        let state = Arc::new(Mutex::new(AppState::default()));
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        let client = FakeClient::new(sample_topics());
+
+        let session = {
+            let (client, state) = (client.clone(), Arc::clone(&state));
+            tokio::spawn(async move { connect_and_run(client, &state, &mut cmd_rx).await })
+        };
+        // Paused time jumps straight to each tick while the session idles.
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        drop(cmd_tx);
+        session.await.unwrap().expect("session ends cleanly");
+
+        let polls = client
+            .request_calls()
+            .iter()
+            .filter(|r| matches!(r, Request::GetTopicStats))
+            .count();
+        assert_eq!(polls, 2);
+        let selected = sample_topics()[0].name.clone();
+        assert!(
+            client
+                .request_calls()
+                .contains(&Request::GetTopicEndpoints {
+                    topic: selected.clone()
+                })
+        );
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .topic_endpoints
+                .as_ref()
+                .map(|e| &e.topic),
+            Some(&selected)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lists_are_refreshed_periodically_and_on_demand() {
+        let state = Arc::new(Mutex::new(AppState::default()));
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        let client = FakeClient::new(sample_topics());
+
+        let session = {
+            let (client, state) = (client.clone(), Arc::clone(&state));
+            tokio::spawn(async move { connect_and_run(client, &state, &mut cmd_rx).await })
+        };
+        // The refresh key sends `ListTopics`: one immediate refresh, then
+        // the 2 s interval restarts from it.
+        cmd_tx.send(Request::ListTopics).unwrap();
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        drop(cmd_tx);
+        session.await.unwrap().expect("session ends cleanly");
+
+        let count = |want: &Request| client.request_calls().iter().filter(|r| *r == want).count();
+        assert_eq!(count(&Request::ListTopics), 3);
+        assert_eq!(count(&Request::ListNodes), 3);
     }
 
     #[tokio::test]

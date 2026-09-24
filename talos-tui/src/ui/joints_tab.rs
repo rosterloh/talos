@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph};
 
 use crate::state::{AppState, JointFocus, Pane};
 
@@ -90,7 +90,9 @@ fn draw_joint_list(f: &mut Frame, state: &AppState, area: Rect) {
             .border_style(border_style),
     );
 
-    f.render_widget(list, area);
+    // A fresh state each frame is enough: ratatui scrolls to keep the selection visible.
+    let mut list_state = ListState::default().with_selected(Some(state.joint_selected));
+    f.render_stateful_widget(list, area, &mut list_state);
 }
 
 fn draw_pose_list(f: &mut Frame, state: &AppState, area: Rect) {
@@ -128,7 +130,8 @@ fn draw_pose_list(f: &mut Frame, state: &AppState, area: Rect) {
             .border_style(border_style),
     );
 
-    f.render_widget(list, area);
+    let mut list_state = ListState::default().with_selected(Some(state.pose_selected));
+    f.render_stateful_widget(list, area, &mut list_state);
 }
 
 fn draw_joint_detail(f: &mut Frame, state: &AppState, area: Rect) {
@@ -210,6 +213,17 @@ fn draw_joint_detail(f: &mut Frame, state: &AppState, area: Rect) {
                     Style::default().fg(Color::Red),
                 )));
             }
+        } else if let Some(ref status) = state.joint_status {
+            let color = if status.starts_with("error") {
+                Color::Red
+            } else {
+                Color::Yellow
+            };
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                status.as_str(),
+                Style::default().fg(color),
+            )));
         }
 
         lines.push(Line::from(""));

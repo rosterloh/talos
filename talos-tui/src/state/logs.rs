@@ -1,6 +1,7 @@
 use talos_common::protocol::types::DynValue;
 
 use super::AppState;
+use super::filter::matches_filter;
 
 #[derive(Debug, Clone)]
 pub struct LogEntry {
@@ -52,6 +53,10 @@ impl LogLevel {
 impl AppState {
     pub(crate) fn push_log_entry_from_data(&mut self, data: &DynValue) {
         if let Some(entry) = extract_log_entry(data) {
+            // Newest entries go on top; keep the highlight on the same entry.
+            if self.log_selected > 0 && self.log_entry_visible(&entry) {
+                self.log_selected += 1;
+            }
             self.log_entries.push_front(entry);
             while self.log_entries.len() > self.log_max_entries {
                 self.log_entries.pop_back();
@@ -62,10 +67,20 @@ impl AppState {
     pub fn filtered_log_entries(&self) -> Vec<&LogEntry> {
         self.log_entries
             .iter()
-            .filter(|e| self.log_severity_filter.matches(&e.level))
-            .filter(|e| self.log_node_filter.is_empty() || e.node.contains(&self.log_node_filter))
-            .filter(|e| self.log_search.is_empty() || e.message.contains(&self.log_search))
+            .filter(|e| self.log_entry_visible(e))
             .collect()
+    }
+
+    /// Keep the selection inside the filtered list after the filter changes.
+    pub(crate) fn clamp_log_selection(&mut self) {
+        let len = self.filtered_log_entries().len();
+        self.log_selected = self.log_selected.min(len.saturating_sub(1));
+    }
+
+    fn log_entry_visible(&self, e: &LogEntry) -> bool {
+        self.log_severity_filter.matches(&e.level)
+            && (self.log_node_filter.is_empty() || e.node.contains(&self.log_node_filter))
+            && matches_filter(&e.message, &self.log_search)
     }
 }
 
@@ -130,5 +145,46 @@ fn extract_log_entry(data: &DynValue) -> Option<LogEntry> {
         })
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn log(level: &str) -> DynValue {
+        DynValue::Struct {
+            type_name: "rcl_interfaces/msg/Log".into(),
+            fields: vec![
+                ("level".into(), DynValue::String(level.into())),
+                ("name".into(), DynValue::String("n".into())),
+                ("msg".into(), DynValue::String("m".into())),
+            ],
+        }
+    }
+
+    #[test]
+    fn selection_follows_entry_as_new_logs_arrive() {
+        let mut state = AppState::default();
+        state.push_log_entry_from_data(&log("INFO"));
+        state.push_log_entry_from_data(&log("WARN"));
+        state.log_selected = 1; // the INFO entry
+        state.push_log_entry_from_data(&log("ERROR"));
+        assert_eq!(
+            state.filtered_log_entries()[state.log_selected].level,
+            "INFO"
+        );
+    }
+
+    #[test]
+    fn selection_is_clamped_when_filter_shrinks_list() {
+        let mut state = AppState::default();
+        for level in ["INFO", "INFO", "WARN"] {
+            state.push_log_entry_from_data(&log(level));
+        }
+        state.log_selected = 2;
+        state.log_severity_filter = LogLevel::Warn;
+        state.clamp_log_selection();
+        assert_eq!(state.log_selected, 0);
     }
 }

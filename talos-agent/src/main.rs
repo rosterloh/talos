@@ -40,8 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     if !has_uds && !has_quic {
-        error!("no transport configured — set [transport.uds] or [transport.quic] in config");
-        return Ok(());
+        return Err(
+            "no transport configured — set [transport.uds] or [transport.quic] in config".into(),
+        );
     }
 
     let router: RouterHandle = Arc::new(Mutex::new(TopicRouter::new()));
@@ -96,6 +97,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             while let Some(response) = bridge_rx.recv().await {
                 router.lock().await.route(&response);
+            }
+        })
+    };
+
+    // Close a topic-stats window every second.
+    let _stats_handle = {
+        let router = Arc::clone(&router);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+            loop {
+                interval.tick().await;
+                router.lock().await.tick_stats(std::time::Instant::now());
             }
         })
     };

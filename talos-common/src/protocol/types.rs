@@ -90,6 +90,112 @@ pub struct JointLimits {
     pub velocity: f64,
 }
 
+/// Per-topic traffic measured by the agent before any per-client frame
+/// dropping, so it stays accurate for slow clients.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TopicStats {
+    pub topic: String,
+    /// Smoothed messages per second.
+    pub rate_hz: f64,
+    /// Smoothed payload bytes per second, from the size of the decoded
+    /// message (an approximation of the size on the wire).
+    pub bandwidth_bps: f64,
+    /// Smoothed agent receive time minus `header.stamp`, in milliseconds.
+    /// `None` for types without a stamp. Uses the agent's wall clock, so it
+    /// is meaningless under simulated time.
+    pub latency_ms: Option<f64>,
+}
+
+/// A publisher or subscription on a topic, with the QoS it offers (publisher)
+/// or requests (subscription).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EndpointInfo {
+    pub node_name: String,
+    pub node_namespace: String,
+    pub topic_type: String,
+    pub qos: QosInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QosInfo {
+    pub reliability: Reliability,
+    pub durability: Durability,
+    pub history: History,
+    /// `None` means no deadline (infinite or system default).
+    pub deadline_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Reliability {
+    SystemDefault,
+    Reliable,
+    BestEffort,
+    BestAvailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Durability {
+    SystemDefault,
+    TransientLocal,
+    Volatile,
+    BestAvailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum History {
+    SystemDefault { depth: u32 },
+    KeepLast { depth: u32 },
+    KeepAll,
+}
+
+impl QosInfo {
+    /// Why a publisher offering `self` can't be matched with a subscription
+    /// requesting `sub`, following the ROS 2 QoS compatibility rules. `None`
+    /// if they are compatible, or if a policy is left to the system default
+    /// or best-available so it can't be judged here.
+    pub fn incompatibility_with(&self, sub: &QosInfo) -> Option<&'static str> {
+        if self.reliability == Reliability::BestEffort && sub.reliability == Reliability::Reliable {
+            return Some("best-effort publisher, reliable subscriber");
+        }
+        if self.durability == Durability::Volatile && sub.durability == Durability::TransientLocal {
+            return Some("volatile publisher, transient-local subscriber");
+        }
+        if let Some(requested) = sub.deadline_ms
+            && self.deadline_ms.is_none_or(|offered| offered > requested)
+        {
+            return Some("publisher deadline longer than subscriber's");
+        }
+        None
+    }
+}
+
+impl std::fmt::Display for QosInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let reliability = match self.reliability {
+            Reliability::SystemDefault => "default",
+            Reliability::Reliable => "reliable",
+            Reliability::BestEffort => "best_effort",
+            Reliability::BestAvailable => "best_available",
+        };
+        let durability = match self.durability {
+            Durability::SystemDefault => "default",
+            Durability::TransientLocal => "transient_local",
+            Durability::Volatile => "volatile",
+            Durability::BestAvailable => "best_available",
+        };
+        write!(f, "{reliability} {durability} ")?;
+        match self.history {
+            History::SystemDefault { depth } => write!(f, "default({depth})")?,
+            History::KeepLast { depth } => write!(f, "keep_last({depth})")?,
+            History::KeepAll => write!(f, "keep_all")?,
+        }
+        if let Some(ms) = self.deadline_ms {
+            write!(f, " deadline {ms}ms")?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PoseInfo {
     pub name: String,
@@ -97,3 +203,32 @@ pub struct PoseInfo {
 }
 
 pub use super::params::{ParamInfo, ParamValue};
+
+/// ROS 2 logger severity levels (`rcl_interfaces/msg/LoggerLevel`). `UNSET`
+/// means the logger inherits the default level.
+pub const LOGGER_LEVELS: [(u32, &str); 6] = [
+    (0, "UNSET"),
+    (10, "DEBUG"),
+    (20, "INFO"),
+    (30, "WARN"),
+    (40, "ERROR"),
+    (50, "FATAL"),
+];
+
+/// Name of a logger level, or `None` for a non-standard value.
+pub fn logger_level_name(level: u32) -> Option<&'static str> {
+    LOGGER_LEVELS
+        .iter()
+        .find(|(l, _)| *l == level)
+        .map(|(_, name)| *name)
+}
+
+/// Parse a logger level name, case-insensitively (`warning` is accepted for `WARN`).
+pub fn parse_logger_level(name: &str) -> Option<u32> {
+    let upper = name.trim().to_ascii_uppercase();
+    let upper = if upper == "WARNING" { "WARN" } else { &upper };
+    LOGGER_LEVELS
+        .iter()
+        .find(|(_, n)| *n == upper)
+        .map(|(l, _)| *l)
+}

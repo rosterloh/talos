@@ -19,7 +19,7 @@ The TUI Log tab displays messages in a table and supports:
 
 - Severity filtering.
 - Node filtering.
-- Text search.
+- Text search on the message (`/`, case-insensitive substring).
 
 The UI keeps log interaction local to the client. The agent still routes only
 the `/rosout` topic data to clients that subscribed to it.

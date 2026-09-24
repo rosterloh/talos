@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::state::{AppState, Pane, node_label};
 
@@ -54,7 +54,9 @@ fn draw_node_list(f: &mut Frame, state: &AppState, area: Rect) {
             .border_style(border_style),
     );
 
-    f.render_widget(list, area);
+    // A fresh state each frame is enough: ratatui scrolls to keep the selection visible.
+    let mut list_state = ListState::default().with_selected(Some(state.param_node_selected));
+    f.render_stateful_widget(list, area, &mut list_state);
 }
 
 fn draw_param_pane(f: &mut Frame, state: &AppState, area: Rect) {
@@ -78,6 +80,7 @@ fn draw_param_list(f: &mut Frame, state: &AppState, area: Rect) {
         Some(node) => format!(" PARAMETERS · {node} "),
         None => " PARAMETERS ".to_string(),
     };
+    let title = super::filter_title(title, &state.param_filter);
 
     if state.parameters.is_empty() {
         let hint = if state.param_node.is_some() {
@@ -100,8 +103,8 @@ fn draw_param_list(f: &mut Frame, state: &AppState, area: Rect) {
     }
 
     let items: Vec<ListItem> = state
-        .parameters
-        .iter()
+        .filtered_parameters()
+        .into_iter()
         .enumerate()
         .map(|(i, p)| {
             let selected = state.active_pane == Pane::Right && i == state.param_selected;
@@ -132,26 +135,26 @@ fn draw_param_list(f: &mut Frame, state: &AppState, area: Rect) {
             .border_style(border_style),
     );
 
-    f.render_widget(list, area);
+    let mut list_state = ListState::default().with_selected(Some(state.param_selected));
+    f.render_stateful_widget(list, area, &mut list_state);
 }
 
 fn draw_footer(f: &mut Frame, state: &AppState, area: Rect) {
     let (title, line) = if state.editing_param {
         let name = state
-            .parameters
+            .filtered_parameters()
             .get(state.param_selected)
             .map(|p| p.name.as_str())
             .unwrap_or("");
-        (
-            " EDIT (Enter to apply, Esc to cancel) ",
-            Line::from(vec![
-                Span::styled(format!("set {name} = "), Style::default().fg(Color::Yellow)),
-                Span::styled(
-                    format!("{}\u{2588}", state.param_input),
-                    Style::default().fg(Color::White),
-                ),
-            ]),
-        )
+        let mut spans = vec![Span::styled(
+            format!("set {name} = "),
+            Style::default().fg(Color::Yellow),
+        )];
+        spans.extend(super::input_spans(
+            &state.param_input,
+            Style::default().fg(Color::White),
+        ));
+        (" EDIT (Enter to apply, Esc to cancel) ", Line::from(spans))
     } else if let Some(status) = &state.param_status {
         (
             " STATUS ",

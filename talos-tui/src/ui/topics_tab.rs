@@ -2,10 +2,10 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Sparkline};
 
-use crate::state::{AppState, Pane, TopicSubscriptionState};
-use talos_common::protocol::types::DynValue;
+use crate::state::{AppState, Pane, TopicEndpoints, TopicSubscriptionState};
+use talos_common::protocol::types::{DynValue, EndpointInfo};
 
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
     let chunks = Layout::default()
@@ -18,17 +18,19 @@ pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
 }
 
 fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
+    let now = std::time::Instant::now();
     let items: Vec<ListItem> = state
-        .topic_names
-        .iter()
+        .filtered_topic_names()
+        .into_iter()
         .enumerate()
         .map(|(i, name)| {
             let hz_str = state
                 .topics
                 .get(name)
                 .map(|t| {
-                    if t.hz > 0.5 {
-                        format!("{:>5.0}Hz", t.hz)
+                    let hz = t.current_stats(now).map_or(0.0, |s| s.rate_hz);
+                    if hz > 0.5 {
+                        format!("{hz:>5.0}Hz")
                     } else if t.msg_count > 0 {
                         "latch".to_string()
                     } else {
@@ -74,11 +76,13 @@ fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" TOPICS ")
+            .title(super::filter_title(" TOPICS ".into(), &state.topic_filter))
             .border_style(border_style),
     );
 
-    f.render_widget(list, area);
+    // A fresh state each frame is enough: ratatui scrolls to keep the selection visible.
+    let mut list_state = ListState::default().with_selected(Some(state.topic_selected));
+    f.render_stateful_widget(list, area, &mut list_state);
 }
 
 fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
@@ -89,9 +93,8 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
     };
 
     let selected_topic = state
-        .topic_names
-        .get(state.topic_selected)
-        .and_then(|name| state.topics.get(name));
+        .selected_topic_name()
+        .and_then(|name| state.topics.get(&name));
 
     let (title, lines) = if let Some(topic) = selected_topic {
         let type_short = topic
@@ -100,8 +103,10 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
             .rsplit('/')
             .next()
             .unwrap_or(&topic.info.type_name);
-        let hz_str = if topic.hz > 0.5 {
-            format!(" @ {:.0}Hz", topic.hz)
+        let now = std::time::Instant::now();
+        let hz = topic.current_stats(now).map_or(0.0, |s| s.rate_hz);
+        let hz_str = if hz > 0.5 {
+            format!(" @ {hz:.0}Hz")
         } else {
             String::new()
         };
@@ -111,6 +116,26 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
             format!("{type_short}{hz_str}"),
             Style::default().fg(Color::DarkGray),
         )])];
+        if let Some(stats) = topic.current_stats(now) {
+            let latency = stats
+                .latency_ms
+                .map_or_else(|| "-".to_string(), |ms| format!("{ms:.1} ms"));
+            lines.push(Line::from(vec![
+                Span::styled("Agent: ", Style::default().fg(Color::DarkGray)),
+                Span::raw(format!(
+                    "{:.1} Hz  {}  latency {latency}",
+                    stats.rate_hz,
+                    format_bandwidth(stats.bandwidth_bps)
+                )),
+            ]));
+        }
+        if let Some(endpoints) = state
+            .topic_endpoints
+            .as_ref()
+            .filter(|e| e.topic == topic.info.name)
+        {
+            push_endpoint_lines(&mut lines, endpoints);
+        }
         let (_, subscription_style) = subscription_badge(topic);
         lines.push(Line::from(vec![
             Span::styled("Subscription: ", Style::default().fg(Color::DarkGray)),
@@ -148,7 +173,79 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
             .border_style(border_style),
     );
 
-    f.render_widget(paragraph, area);
+    let history: Vec<u64> = selected_topic
+        .map(|t| t.rate_history.iter().copied().collect())
+        .unwrap_or_default();
+    if history.len() < 2 {
+        f.render_widget(paragraph, area);
+        return;
+    }
+
+    let [detail_area, spark_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(5)]).areas(area);
+    f.render_widget(paragraph, detail_area);
+    let sparkline = Sparkline::default()
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!(" rate, last {}s ", history.len()))
+                .border_style(border_style),
+        )
+        .data(&history)
+        .style(Style::default().fg(Color::Cyan));
+    f.render_widget(sparkline, spark_area);
+}
+
+/// Publisher and subscriber QoS, with subscribers that can't be matched to a
+/// publisher flagged (the usual reason a topic delivers no data).
+fn push_endpoint_lines(lines: &mut Vec<Line<'static>>, endpoints: &TopicEndpoints) {
+    let label = |e: &EndpointInfo| {
+        if e.node_namespace.is_empty() || e.node_namespace == "/" {
+            format!("/{}", e.node_name)
+        } else {
+            format!("{}/{}", e.node_namespace.trim_end_matches('/'), e.node_name)
+        }
+    };
+    let dim = Style::default().fg(Color::DarkGray);
+
+    lines.push(Line::from(Span::styled(
+        format!("Publishers ({}):", endpoints.publishers.len()),
+        dim,
+    )));
+    for publisher in &endpoints.publishers {
+        lines.push(Line::from(vec![
+            Span::raw(format!("  {}  ", label(publisher))),
+            Span::styled(publisher.qos.to_string(), dim),
+        ]));
+    }
+    lines.push(Line::from(Span::styled(
+        format!("Subscribers ({}):", endpoints.subscribers.len()),
+        dim,
+    )));
+    for subscriber in &endpoints.subscribers {
+        lines.push(Line::from(vec![
+            Span::raw(format!("  {}  ", label(subscriber))),
+            Span::styled(subscriber.qos.to_string(), dim),
+        ]));
+        for publisher in &endpoints.publishers {
+            if let Some(reason) = publisher.qos.incompatibility_with(&subscriber.qos) {
+                lines.push(Line::from(Span::styled(
+                    format!("    ⚠ no match with {}: {reason}", label(publisher)),
+                    Style::default().fg(Color::Red),
+                )));
+            }
+        }
+    }
+}
+
+fn format_bandwidth(bytes_per_sec: f64) -> String {
+    if bytes_per_sec >= 1024.0 * 1024.0 {
+        format!("{:.1} MB/s", bytes_per_sec / (1024.0 * 1024.0))
+    } else if bytes_per_sec >= 1024.0 {
+        format!("{:.1} KB/s", bytes_per_sec / 1024.0)
+    } else {
+        format!("{bytes_per_sec:.0} B/s")
+    }
 }
 
 fn render_dynvalue(
@@ -240,8 +337,8 @@ fn format_value(value: &DynValue) -> String {
         DynValue::F32(v) => format!("{v:.4}"),
         DynValue::F64(v) => format!("{v:.4}"),
         DynValue::String(s) => {
-            if s.len() > 80 {
-                format!("{}...", &s[..77])
+            if s.chars().count() > 80 {
+                format!("{}...", s.chars().take(77).collect::<String>())
             } else {
                 s.clone()
             }
@@ -266,5 +363,124 @@ fn subscription_badge(topic: &crate::state::TopicData) -> (&'static str, Style) 
         TopicSubscriptionState::PendingSubscribe => ("[+..]", Style::default().fg(Color::Yellow)),
         TopicSubscriptionState::PendingUnsubscribe => ("[-..]", Style::default().fg(Color::Yellow)),
         TopicSubscriptionState::Error => ("[ERR]", Style::default().fg(Color::Red)),
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use talos_common::protocol::messages::Response;
+    use talos_common::protocol::types::{TopicInfo, TopicStats};
+
+    use super::*;
+
+    /// Draw the Topics tab into a test buffer and return it as text rows.
+    pub(crate) fn render(state: &AppState) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(140, 30)).unwrap();
+        terminal.draw(|f| draw(f, state, f.area())).unwrap();
+        let buffer = terminal.backend().buffer();
+        buffer
+            .content()
+            .chunks(buffer.area.width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub(crate) fn state_with_topic(name: &str) -> AppState {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![TopicInfo {
+            name: name.into(),
+            type_name: "sensor_msgs/msg/LaserScan".into(),
+            publisher_count: 1,
+            subscriber_count: 0,
+        }]));
+        state
+    }
+
+    #[test]
+    fn agent_stats_render_in_list_and_detail() {
+        let mut state = state_with_topic("/scan");
+        for rate_hz in [9.6, 10.2] {
+            state.handle_topic_stats(vec![TopicStats {
+                topic: "/scan".into(),
+                rate_hz,
+                bandwidth_bps: 2048.0,
+                latency_ms: Some(3.5),
+            }]);
+        }
+
+        let screen = render(&state);
+        assert!(screen.contains("/scan     10Hz"), "{screen}");
+        assert!(
+            screen.contains("Agent: 10.2 Hz  2.0 KB/s  latency 3.5 ms"),
+            "{screen}"
+        );
+        assert!(screen.contains(" rate, last 2s "), "{screen}");
+    }
+
+    #[test]
+    fn topic_without_stats_renders_placeholder_rate() {
+        let screen = render(&state_with_topic("/scan"));
+        assert!(screen.contains("/scan    -"), "{screen}");
+        assert!(!screen.contains("Agent:"), "{screen}");
+    }
+
+    #[test]
+    fn endpoints_render_with_incompatibility_warning() {
+        use talos_common::protocol::types::{
+            Durability, EndpointInfo, History, QosInfo, Reliability,
+        };
+        let endpoint = |node: &str, reliability| EndpointInfo {
+            node_name: node.into(),
+            node_namespace: "/".into(),
+            topic_type: "sensor_msgs/msg/LaserScan".into(),
+            qos: QosInfo {
+                reliability,
+                durability: Durability::Volatile,
+                history: History::KeepLast { depth: 5 },
+                deadline_ms: None,
+            },
+        };
+        let mut state = state_with_topic("/scan");
+        state.handle_response(Response::TopicEndpoints {
+            topic: "/scan".into(),
+            publishers: vec![endpoint("lidar", Reliability::BestEffort)],
+            subscribers: vec![endpoint("talos_agent", Reliability::Reliable)],
+        });
+
+        let screen = render(&state);
+        assert!(screen.contains("Publishers (1):"), "{screen}");
+        assert!(
+            screen.contains("/lidar  best_effort volatile keep_last(5)"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("/talos_agent  reliable volatile keep_last(5)"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("⚠ no match with /lidar: best-effort publisher, reliable subscriber"),
+            "{screen}"
+        );
+    }
+
+    #[test]
+    fn endpoints_for_another_topic_are_not_shown() {
+        let mut state = state_with_topic("/scan");
+        state.handle_response(Response::TopicEndpoints {
+            topic: "/other".into(),
+            publishers: vec![],
+            subscribers: vec![],
+        });
+        assert!(!render(&state).contains("Publishers"));
+    }
+
+    #[test]
+    fn bandwidth_is_formatted_with_units() {
+        assert_eq!(format_bandwidth(512.0), "512 B/s");
+        assert_eq!(format_bandwidth(1536.0), "1.5 KB/s");
+        assert_eq!(format_bandwidth(3.0 * 1024.0 * 1024.0), "3.0 MB/s");
     }
 }

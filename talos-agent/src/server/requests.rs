@@ -4,7 +4,8 @@ use talos_common::protocol::types::TopicSub;
 
 use super::RouterHandle;
 use super::control::{configured_poses, execute_pose, set_joint_position};
-use super::graph::{list_nodes, list_topics};
+use super::graph::{list_nodes, list_topics, topic_endpoints};
+use super::logger_levels::{get_logger_level, set_logger_level};
 use super::parameters::{get_parameters, list_parameters, set_parameter};
 use crate::router::ClientId;
 use crate::{GraphHandle, JointPublisher};
@@ -44,7 +45,9 @@ pub(super) async fn handle_request(
                 topics: topics.clone(),
             })
         }
-        other => Some(handle_control_request(other, config, joint_publisher, graph_handle).await),
+        other => {
+            Some(handle_control_request(other, config, joint_publisher, graph_handle, router).await)
+        }
     }
 }
 
@@ -53,8 +56,11 @@ pub(super) async fn handle_control_request(
     config: &AgentConfig,
     joint_publisher: &JointPublisher,
     graph_handle: &GraphHandle,
+    router: &RouterHandle,
 ) -> Response {
     match request {
+        Request::GetTopicStats => Response::TopicStats(router.lock().await.topic_stats()),
+        Request::GetTopicEndpoints { topic } => topic_endpoints(topic, graph_handle).await,
         Request::ListTopics => list_topics(config, graph_handle).await,
         Request::ListNodes => list_nodes(graph_handle).await,
         Request::ListPoses => Response::PoseList(configured_poses(config)),
@@ -67,6 +73,14 @@ pub(super) async fn handle_control_request(
         Request::SetParameter { node, name, value } => {
             set_parameter(node, name, value, graph_handle).await
         }
+        Request::GetLoggerLevel { node, logger } => {
+            get_logger_level(node, logger, graph_handle).await
+        }
+        Request::SetLoggerLevel {
+            node,
+            logger,
+            level,
+        } => set_logger_level(node, logger, *level, graph_handle).await,
         _ => Response::Error("unexpected request".into()),
     }
 }
