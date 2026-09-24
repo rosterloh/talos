@@ -23,7 +23,9 @@ check = "cargo check --workspace"
 test = "cargo test --workspace"
 
 [dependencies]
-ros-lyrical-ros-base = ">=0.13.0,<0.14"
+# RoboStack names ROS 2 packages `ros2-*`; the channel and this mutex pick the distro.
+ros2-distro-mutex = { version = "*", build = "lyrical*" }
+ros2-ros-base = ">=0.13.0,<0.14"
 rust = ">=1.93.0,<1.94"
 pkg-config = ">=0.29.2,<0.30"
 compilers = ">=1.11.0,<2"

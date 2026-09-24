@@ -259,7 +259,8 @@ mod tests {
                 value,
             };
             let bytes = crate::protocol::codec::to_vec(&info).expect("serialize param");
-            let decoded: ParamInfo = crate::protocol::codec::from_slice(&bytes).expect("deserialize param");
+            let decoded: ParamInfo =
+                crate::protocol::codec::from_slice(&bytes).expect("deserialize param");
             assert_eq!(info, decoded);
         }
     }
@@ -270,7 +271,7 @@ mod tests {
         assert_eq!(ParamValue::parse("False"), ParamValue::Bool(false));
         assert_eq!(ParamValue::parse("42"), ParamValue::Integer(42));
         assert_eq!(ParamValue::parse("-7"), ParamValue::Integer(-7));
-        assert_eq!(ParamValue::parse("3.14"), ParamValue::Double(3.14));
+        assert_eq!(ParamValue::parse("2.75"), ParamValue::Double(2.75));
         assert_eq!(ParamValue::parse("1.0"), ParamValue::Double(1.0));
         assert_eq!(
             ParamValue::parse("hello"),
@@ -341,7 +342,7 @@ mod tests {
             ParamValue::Bool(true),
             ParamValue::Integer(42),
             ParamValue::Double(1.0),
-            ParamValue::Double(3.14),
+            ParamValue::Double(2.75),
             ParamValue::String("hello".into()),
             ParamValue::IntegerArray(vec![1, 2, 3]),
             ParamValue::DoubleArray(vec![1.0, 2.5]),

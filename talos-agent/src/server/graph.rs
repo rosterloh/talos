@@ -127,19 +127,21 @@ mod tests {
 
     #[test]
     fn configured_topics_are_sorted_by_name() {
-        let mut config = AgentConfig::default();
-        config.subscriptions = vec![
-            SubscriptionConfig {
-                topic: "/z".into(),
-                msg_type: "z_msgs/msg/Z".into(),
-                qos: QosProfile::Default,
-            },
-            SubscriptionConfig {
-                topic: "/a".into(),
-                msg_type: "a_msgs/msg/A".into(),
-                qos: QosProfile::SensorData,
-            },
-        ];
+        let config = AgentConfig {
+            subscriptions: vec![
+                SubscriptionConfig {
+                    topic: "/z".into(),
+                    msg_type: "z_msgs/msg/Z".into(),
+                    qos: QosProfile::Default,
+                },
+                SubscriptionConfig {
+                    topic: "/a".into(),
+                    msg_type: "a_msgs/msg/A".into(),
+                    qos: QosProfile::SensorData,
+                },
+            ],
+            ..Default::default()
+        };
 
         let topics = configured_topics(&config);
 

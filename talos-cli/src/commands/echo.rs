@@ -6,7 +6,7 @@ pub async fn run<C: ProtocolClient>(
     topic: String,
     count: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    match client.subscribe(&[topic.clone()]).await {
+    match client.subscribe(std::slice::from_ref(&topic)).await {
         Ok(subs) if subs.is_empty() => {
             eprintln!("warning: agent did not confirm subscription to '{topic}'");
             eprintln!("(the agent may not be subscribed to this topic)");

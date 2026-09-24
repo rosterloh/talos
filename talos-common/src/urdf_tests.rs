@@ -12,7 +12,7 @@ const SAMPLE_URDF: &str = r#"<?xml version="1.0"?>
     <parent link="base_link"/>
     <child link="shoulder_link"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-3.14" upper="3.14" effort="100" velocity="1.0"/>
+    <limit lower="-2.75" upper="2.75" effort="100" velocity="1.0"/>
   </joint>
 
   <joint name="elbow" type="revolute">
@@ -44,8 +44,8 @@ fn joint_properties() {
     assert_eq!(shoulder.child_link, "shoulder_link");
 
     let limits = shoulder.limits.as_ref().unwrap();
-    assert!((limits.lower - (-3.14)).abs() < f64::EPSILON);
-    assert!((limits.upper - 3.14).abs() < f64::EPSILON);
+    assert!((limits.lower - (-2.75)).abs() < f64::EPSILON);
+    assert!((limits.upper - 2.75).abs() < f64::EPSILON);
     assert!((limits.effort - 100.0).abs() < f64::EPSILON);
     assert!((limits.velocity - 1.0).abs() < f64::EPSILON);
 }
