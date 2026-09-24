@@ -30,7 +30,7 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 type TopicSender = mpsc::UnboundedSender<Response>;
-type SubscribeResult = Result<(), Box<dyn Error + Send + Sync>>;
+type SubscribeResult = Result<crate::conversions::SubscriptionGuard, Box<dyn Error + Send + Sync>>;
 
 /// Subscribe to `topic` of the runtime-resolved `type_name`, converting each
 /// message to a [`DynValue`] tree. Mirrors the signature of the static
@@ -46,7 +46,7 @@ pub fn subscribe_dynamic(
     let topic_type = MessageTypeName::try_from(type_name.as_str())
         .map_err(|e| format!("invalid message type '{type_name}': {e:?}"))?;
 
-    node.create_dynamic_subscription(
+    let subscription = node.create_dynamic_subscription(
         topic_type,
         opts,
         move |msg: DynamicMessage, _info: MessageInfo| {
@@ -61,7 +61,7 @@ pub fn subscribe_dynamic(
             });
         },
     )?;
-    Ok(())
+    Ok(Box::new(subscription))
 }
 
 /// Convert a whole message view into a `DynValue::Struct`.
@@ -124,7 +124,9 @@ fn simple_to_dynvalue(value: SimpleValue<'_>) -> DynValue {
 /// Fixed-length array conversion.
 fn array_to_dynvalue(value: ArrayValue<'_>) -> DynValue {
     match value {
-        ArrayValue::DoubleArray(s) => DynValue::Array(s.iter().map(|v| DynValue::F64(*v)).collect()),
+        ArrayValue::DoubleArray(s) => {
+            DynValue::Array(s.iter().map(|v| DynValue::F64(*v)).collect())
+        }
         ArrayValue::FloatArray(s) => DynValue::Array(s.iter().map(|v| DynValue::F32(*v)).collect()),
         ArrayValue::BooleanArray(s) => {
             DynValue::Array(s.iter().map(|v| DynValue::Bool(*v)).collect())
@@ -256,10 +258,10 @@ fn bounded_sequence_to_dynvalue(value: BoundedSequenceValue<'_>) -> DynValue {
 /// Best-effort timestamp extraction so time-series clients keep working without
 /// per-type knowledge: prefer `header.stamp`, then a top-level `stamp`.
 fn extract_stamp(view: &DynamicMessageView<'_>) -> Option<Timestamp> {
-    if let Some(Value::Simple(SimpleValue::Message(header))) = view.get("header") {
-        if let Some(ts) = stamp_from_time(&header, "stamp") {
-            return Some(ts);
-        }
+    if let Some(Value::Simple(SimpleValue::Message(header))) = view.get("header")
+        && let Some(ts) = stamp_from_time(&header, "stamp")
+    {
+        return Some(ts);
     }
     stamp_from_time(view, "stamp")
 }
@@ -315,10 +317,12 @@ mod tests {
         msg.header.stamp.sec = 7;
         msg.header.stamp.nanosec = 42;
         msg.width = 3;
-        let mut point_field = sensor_msgs::msg::rmw::PointField::default();
-        point_field.name = "x".into();
-        point_field.datatype = 7;
-        point_field.count = 1;
+        let point_field = sensor_msgs::msg::rmw::PointField {
+            name: "x".into(),
+            datatype: 7,
+            count: 1,
+            ..Default::default()
+        };
         msg.fields = [point_field].into_iter().collect();
         msg.data = [1u8, 2, 3].into_iter().collect();
         msg
@@ -356,6 +360,12 @@ mod tests {
         let dynamic = DynamicMessage::convert_from_rmw_message(populated_point_cloud()).unwrap();
         let stamp = extract_stamp(&dynamic.view());
 
-        assert_eq!(stamp, Some(Timestamp { sec: 7, nanosec: 42 }));
+        assert_eq!(
+            stamp,
+            Some(Timestamp {
+                sec: 7,
+                nanosec: 42
+            })
+        );
     }
 }

@@ -39,6 +39,22 @@ cargo test --workspace
 cargo test -p talos-common
 cargo test -p talos-agent --test integration
 cargo test -p talos-agent --test integration --features quic
+cargo test -p talos-agent --test bridge_live
+```
+
+`bridge_live` is the only test that exercises a real ROS 2 topic: it publishes
+on one and asserts the bridge forwards the message to the router. The
+`integration` tests drive the IPC protocol with synthetic responses, so they
+stay green even if the bridge delivers nothing. Run it inside the Pixi
+environment.
+
+## Lints
+
+CI enforces both of these, so run them before pushing:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --features quic -- -D warnings
 ```
 
 ## Coverage
