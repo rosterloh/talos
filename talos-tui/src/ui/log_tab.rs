@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Row, Table};
+use ratatui::widgets::{Block, Borders, Paragraph, Row, Table, TableState};
 
 use crate::state::AppState;
 
@@ -68,7 +68,8 @@ fn draw_log_table(f: &mut Frame, state: &AppState, area: Rect) {
     .header(header)
     .block(Block::default().borders(Borders::ALL).title(" LOG "));
 
-    f.render_widget(table, area);
+    let mut table_state = TableState::default().with_selected(Some(state.log_selected));
+    f.render_stateful_widget(table, area, &mut table_state);
 }
 
 fn draw_filter_bar(f: &mut Frame, state: &AppState, area: Rect) {

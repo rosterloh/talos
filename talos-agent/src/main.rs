@@ -40,8 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     if !has_uds && !has_quic {
-        error!("no transport configured — set [transport.uds] or [transport.quic] in config");
-        return Ok(());
+        return Err(
+            "no transport configured — set [transport.uds] or [transport.quic] in config".into(),
+        );
     }
 
     let router: RouterHandle = Arc::new(Mutex::new(TopicRouter::new()));

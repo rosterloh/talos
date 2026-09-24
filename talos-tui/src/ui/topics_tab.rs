@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::state::{AppState, Pane, TopicSubscriptionState};
 use talos_common::protocol::types::DynValue;
@@ -78,7 +78,9 @@ fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
             .border_style(border_style),
     );
 
-    f.render_widget(list, area);
+    // A fresh state each frame is enough: ratatui scrolls to keep the selection visible.
+    let mut list_state = ListState::default().with_selected(Some(state.topic_selected));
+    f.render_stateful_widget(list, area, &mut list_state);
 }
 
 fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
@@ -240,8 +242,8 @@ fn format_value(value: &DynValue) -> String {
         DynValue::F32(v) => format!("{v:.4}"),
         DynValue::F64(v) => format!("{v:.4}"),
         DynValue::String(s) => {
-            if s.len() > 80 {
-                format!("{}...", &s[..77])
+            if s.chars().count() > 80 {
+                format!("{}...", s.chars().take(77).collect::<String>())
             } else {
                 s.clone()
             }

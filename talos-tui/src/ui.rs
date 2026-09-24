@@ -99,8 +99,10 @@ fn draw_status_bar(f: &mut Frame, state: &AppState, area: Rect) {
             "↑↓ navigate  s toggle sub  Enter select  ←→ expand/collapse  Tab pane  q quit  ? help"
         }
         Tab::Nodes => "↑↓ navigate  Enter select  Tab pane  q quit  ? help",
-        Tab::Log => "↑↓ scroll  f filter severity  n filter node  / search  q quit  ? help",
-        Tab::Joints => "↑↓ navigate  ←→ adjust  Enter edit  p execute pose  q quit  ? help",
+        Tab::Log => "↑↓ scroll  f filter severity  q quit  ? help",
+        Tab::Joints => {
+            "↑↓ navigate  j/o joints/poses  e edit joint  x execute pose  q quit  ? help"
+        }
         Tab::Params => "↑↓ navigate  Tab pane  Enter load  e edit value  q quit  ? help",
     };
 

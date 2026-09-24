@@ -72,6 +72,7 @@ pub(super) fn load_for_selected(state: &mut AppState, cmd_tx: &mpsc::UnboundedSe
     state.param_node = Some(fqn.clone());
     state.param_selected = 0;
     state.param_status = Some(format!("loading parameters for {fqn}..."));
+    state.param_awaiting_reply = true;
     let _ = cmd_tx.send(Request::ListParameters { node: fqn });
 }
 
@@ -95,6 +96,7 @@ fn handle_input_submit(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Requ
     state.editing_param = false;
     state.param_input.clear();
     state.param_status = Some(format!("setting '{name}'..."));
+    state.param_awaiting_reply = true;
 }
 
 #[cfg(test)]

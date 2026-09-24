@@ -66,7 +66,11 @@ pub fn draw(f: &mut Frame, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(vec![
-            Span::styled("  p        ", Style::default().fg(Color::Yellow)),
+            Span::styled("  e        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Edit selected joint position"),
+        ]),
+        Line::from(vec![
+            Span::styled("  x        ", Style::default().fg(Color::Yellow)),
             Span::raw("Execute selected pose"),
         ]),
         Line::from(vec![

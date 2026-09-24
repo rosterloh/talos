@@ -9,6 +9,30 @@ those entries into the versioned section when a release is created.
 
 ### Fixed
 
+- QUIC clients no longer lose a topic's stream for the rest of the session when
+  a single message is between 8 and 16 MiB. The data-stream decoder now uses
+  the protocol's 16 MiB frame limit instead of the 8 MiB codec default.
+- A message over the 16 MiB frame limit is now logged and dropped by the agent.
+  Before, it disconnected UDS clients (which reconnected into the same frame)
+  or closed that topic's QUIC stream.
+- The agent now queues at most 1024 undelivered frames per client and drops
+  new frames beyond that. A slow client can no longer grow agent memory
+  without bound.
+- `talos-agent` now exits with an error when no transport is configured.
+- TUI: fixed a crash when truncating long string values that contain
+  multi-byte UTF-8 characters.
+- TUI: the terminal is restored if the TUI panics, and errors from the app
+  loop now give a non-zero exit code.
+- TUI: topic, node, parameter, joint, pose and log lists now scroll to keep
+  the selection visible.
+- TUI: a rejected parameter set is no longer hidden by the refresh that
+  follows it, and agent errors for parameter loads and sets are shown instead
+  of leaving "loading…" on screen.
+- TUI: the status bar and help overlay now show the real Joints key bindings
+  (`e` edit, `x` execute pose, `j`/`o` switch list), and no longer list the
+  Log bindings that don't exist (`n`, `/`).
+- `talos echo` now exits with an error when the agent does not confirm the
+  topic, instead of waiting forever.
 - The version bump workflow now also moves the `[workspace]` version in
   `pixi.toml`, which had been left at 0.1.5; it is set to 1.0.0 to match the
   release.

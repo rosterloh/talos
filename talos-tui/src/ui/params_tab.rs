@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::state::{AppState, Pane, node_label};
 
@@ -54,7 +54,9 @@ fn draw_node_list(f: &mut Frame, state: &AppState, area: Rect) {
             .border_style(border_style),
     );
 
-    f.render_widget(list, area);
+    // A fresh state each frame is enough: ratatui scrolls to keep the selection visible.
+    let mut list_state = ListState::default().with_selected(Some(state.param_node_selected));
+    f.render_stateful_widget(list, area, &mut list_state);
 }
 
 fn draw_param_pane(f: &mut Frame, state: &AppState, area: Rect) {
@@ -132,7 +134,8 @@ fn draw_param_list(f: &mut Frame, state: &AppState, area: Rect) {
             .border_style(border_style),
     );
 
-    f.render_widget(list, area);
+    let mut list_state = ListState::default().with_selected(Some(state.param_selected));
+    f.render_stateful_widget(list, area, &mut list_state);
 }
 
 fn draw_footer(f: &mut Frame, state: &AppState, area: Rect) {
