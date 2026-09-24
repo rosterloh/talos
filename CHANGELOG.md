@@ -68,8 +68,8 @@ those entries into the versioned section when a release is created.
   `RUSTFLAGS` rpath workaround for `osx-arm64` is removed.
 - Refresh `Cargo.lock` with semver-compatible updates (e.g. `tokio` 1.53,
   `quinn` 0.11.12, `rustls` 0.23.45, `clap` 4.6.7).
-- Run the CI `talos-agent` job on a native aarch64 runner (`ubuntu-24.04-arm`)
-  as well as x86-64, covering the `linux-aarch64` Pixi platform.
+- Run the CI `talos-agent` job on a native aarch64 runner (`ubuntu-26.04-arm`)
+  as well as x86-64 (`ubuntu-26.04`), covering the `linux-aarch64` Pixi platform.
 
 > Known issue on Lyrical: the `DynamicMessage` fallback in `rclrs` still panics
 > on primitive or string sequence fields (e.g. `sensor_msgs/PointCloud2`).
