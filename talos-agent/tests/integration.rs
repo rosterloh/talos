@@ -69,7 +69,7 @@ fn inject_value(router: &RouterHandle, topic: &str, data: DynValue) {
         data,
     };
     // Use try_lock to avoid blocking in test helpers
-    if let Ok(r) = router.try_lock() {
+    if let Ok(mut r) = router.try_lock() {
         r.route(&response);
     }
 }
@@ -759,4 +759,36 @@ async fn quic_stalled_topic_stream_does_not_block_control() {
         .await
         .expect("control stream blocked behind a stalled topic stream");
     assert!(matches!(reply, Some(Ok(Response::PoseList(_)))));
+}
+
+#[tokio::test]
+async fn uds_get_topic_stats_reports_agent_side_rate() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("stats.sock").to_string_lossy().into_owned();
+    let router = spawn_uds_server(test_config_uds(&path)).await;
+
+    // No client subscribes: stats count every bridged message regardless.
+    let start = std::time::Instant::now();
+    router.lock().await.tick_stats(start);
+    for _ in 0..5 {
+        inject(&router, "/odom");
+    }
+    router
+        .lock()
+        .await
+        .tick_stats(start + Duration::from_secs(1));
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+    match client.request(Request::GetTopicStats).await.unwrap() {
+        Response::TopicStats(stats) => {
+            assert_eq!(stats.len(), 1);
+            assert_eq!(stats[0].topic, "/odom");
+            assert!(
+                (stats[0].rate_hz - 5.0).abs() < 1e-6,
+                "{}",
+                stats[0].rate_hz
+            );
+        }
+        other => panic!("unexpected response: {other:?}"),
+    }
 }

@@ -41,6 +41,21 @@ use even when the publisher uses reliable QoS.
 
 ## Rates
 
+The agent measures every bridged topic, whether or not any client is
+subscribed. Once a second it closes a window of message and byte counts and
+smooths the result with an exponential moving average. `GetTopicStats` returns:
+
+- **Rate**: messages per second.
+- **Bandwidth**: bytes per second, estimated from the decoded message size
+  (roughly the CDR payload without length prefixes or padding).
+- **Latency**: agent receive time minus `header.stamp`, for stamped types.
+  This uses the agent's wall clock, so it has no meaning under simulated time.
+
+These numbers come from the agent rather than from frames a client receives.
+A client that falls behind has frames dropped by the agent, but the stats stay
+accurate. The TUI polls the stats every second and shows them in the topic list
+and detail pane, with a 60-second rate sparkline.
+
 The TUI keeps the latest value for each topic and renders on a fixed tick loop.
 High-frequency topics are naturally deduplicated by display rate: the UI shows
 the most recent received value at render time rather than drawing every incoming

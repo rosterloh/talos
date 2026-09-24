@@ -84,6 +84,9 @@ pub async fn run(
 ///    and outgoing commands from the UI.
 ///
 /// On reconnect, this function is called again with a fresh client.
+/// How often to fetch agent-side topic stats (matches the agent's window).
+const STATS_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
 async fn connect_and_run<C: ProtocolClient>(
     mut client: C,
     state: &Arc<Mutex<AppState>>,
@@ -121,6 +124,11 @@ async fn connect_and_run<C: ProtocolClient>(
         s.handle_response(resp);
     }
 
+    let mut stats_tick = tokio::time::interval_at(
+        tokio::time::Instant::now() + STATS_POLL_INTERVAL,
+        STATS_POLL_INTERVAL,
+    );
+
     // ── subscribe to the desired topics for this session ─────────────────────
     if !desired_topics.is_empty() {
         {
@@ -157,6 +165,13 @@ async fn connect_and_run<C: ProtocolClient>(
     // ── main loop ─────────────────────────────────────────────────────────────
     loop {
         tokio::select! {
+            _ = stats_tick.tick() => {
+                let response = client
+                    .request(Request::GetTopicStats)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                state.lock().unwrap().handle_response(response);
+            }
             data_result = client.recv_data() => {
                 match data_result {
                     Ok((topic, frame)) => {
@@ -338,6 +353,7 @@ mod tests {
                         .collect(),
                 }),
                 Request::Unsubscribe { topics } => Ok(Response::Unsubscribed { topics }),
+                Request::GetTopicStats => Ok(Response::TopicStats(vec![])),
                 _ => self
                     .request_responses
                     .lock()

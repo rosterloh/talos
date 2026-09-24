@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
 use crate::error::Error;
 
@@ -17,6 +17,16 @@ fn wire_config() -> bincode::config::Configuration<
     bincode::config::NoLimit,
 > {
     bincode::config::legacy()
+}
+
+/// Raw Talos framing (4-byte big-endian length prefix, `MAX_FRAME_SIZE` limit)
+/// without decoding the payload, for streams that mix frame types.
+pub fn frame_codec() -> LengthDelimitedCodec {
+    LengthDelimitedCodec::builder()
+        .length_field_length(4)
+        .big_endian()
+        .max_frame_length(MAX_FRAME_SIZE)
+        .new_codec()
 }
 
 /// Serialize a value using the Talos wire format.

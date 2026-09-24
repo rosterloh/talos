@@ -2,7 +2,7 @@ use super::messages::{Request, Response};
 use super::params::{ParamInfo, ParamValue};
 use super::types::{
     DynValue, JointInfo, JointLimits, JointType, NodeInfo, PoseInfo, StreamHeader, Timestamp,
-    TopicFrame, TopicInfo, TopicSub,
+    TopicFrame, TopicInfo, TopicStats, TopicSub,
 };
 
 fn round_trip_request(req: &Request) {
@@ -330,4 +330,15 @@ fn response_parameter_set() {
         successful: true,
         reason: String::new(),
     });
+}
+
+#[test]
+fn topic_stats_round_trip() {
+    round_trip_request(&Request::GetTopicStats);
+    round_trip_response(&Response::TopicStats(vec![TopicStats {
+        topic: "/scan".into(),
+        rate_hz: 10.0,
+        bandwidth_bps: 2048.0,
+        latency_ms: Some(3.5),
+    }]));
 }

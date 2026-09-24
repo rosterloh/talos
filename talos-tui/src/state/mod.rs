@@ -195,6 +195,7 @@ impl AppState {
             Response::Subscribed { topics } => self.handle_subscribed_topics(topics),
             Response::Unsubscribed { topics } => self.handle_unsubscribed_topics(topics),
             Response::Ok(_) => {}
+            Response::TopicStats(stats) => self.handle_topic_stats(stats),
             Response::Error(e) => {
                 if std::mem::take(&mut self.param_awaiting_reply) {
                     self.param_status = Some(format!("error: {e}"));

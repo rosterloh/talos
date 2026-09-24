@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::params::{ParamInfo, ParamValue};
-use super::types::{DynValue, NodeInfo, PoseInfo, Timestamp, TopicInfo, TopicSub};
+use super::types::{DynValue, NodeInfo, PoseInfo, Timestamp, TopicInfo, TopicStats, TopicSub};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Request {
@@ -36,6 +36,8 @@ pub enum Request {
         name: String,
         value: ParamValue,
     },
+    /// Agent-side rate/bandwidth/latency for every bridged topic.
+    GetTopicStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,4 +71,6 @@ pub enum Response {
     },
     Ok(String),
     Error(String),
+    /// Reply to `GetTopicStats`.
+    TopicStats(Vec<TopicStats>),
 }

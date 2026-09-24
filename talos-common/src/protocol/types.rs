@@ -90,6 +90,22 @@ pub struct JointLimits {
     pub velocity: f64,
 }
 
+/// Per-topic traffic measured by the agent before any per-client frame
+/// dropping, so it stays accurate for slow clients.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TopicStats {
+    pub topic: String,
+    /// Smoothed messages per second.
+    pub rate_hz: f64,
+    /// Smoothed payload bytes per second, from the size of the decoded
+    /// message (an approximation of the size on the wire).
+    pub bandwidth_bps: f64,
+    /// Smoothed agent receive time minus `header.stamp`, in milliseconds.
+    /// `None` for types without a stamp. Uses the agent's wall clock, so it
+    /// is meaningless under simulated time.
+    pub latency_ms: Option<f64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PoseInfo {
     pub name: String,

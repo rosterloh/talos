@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::time::Instant;
+use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
 
 use talos_common::protocol::messages::Request;
-use talos_common::protocol::types::{DynValue, TopicInfo, TopicSub};
+use talos_common::protocol::types::{DynValue, TopicInfo, TopicStats, TopicSub};
 
 use super::AppState;
 
@@ -12,21 +12,27 @@ pub struct TopicData {
     pub latest: Option<DynValue>,
     pub last_received: Option<Instant>,
     pub msg_count: u64,
-    pub hz: f64,
     pub subscription: TopicSubscriptionState,
     pub subscription_error: Option<String>,
+    /// Latest agent-side stats and when they arrived.
+    pub stats: Option<(TopicStats, Instant)>,
+    /// Agent-reported rate, one sample per stats poll, oldest first.
+    pub rate_history: VecDeque<u64>,
 }
 
+/// Rate samples kept for the sparkline (one per second).
+pub const RATE_HISTORY_LEN: usize = 60;
+
+/// Agent stats older than this (e.g. after a disconnect) are ignored.
+const STATS_STALE_AFTER: Duration = Duration::from_secs(3);
+
 impl TopicData {
-    /// The Hz estimate only updates on arrival, so treat it as zero once the
-    /// topic has been quiet for two expected periods (at least one second).
-    pub fn hz_at(&self, now: Instant) -> f64 {
-        match self.last_received {
-            Some(last) if now.duration_since(last).as_secs_f64() < (2.0 / self.hz).max(1.0) => {
-                self.hz
-            }
-            _ => 0.0,
-        }
+    /// Agent-side stats if they are current.
+    pub fn current_stats(&self, now: Instant) -> Option<&TopicStats> {
+        self.stats
+            .as_ref()
+            .filter(|(_, at)| now.duration_since(*at) < STATS_STALE_AFTER)
+            .map(|(stats, _)| stats)
     }
 
     fn placeholder(name: &str) -> Self {
@@ -40,9 +46,10 @@ impl TopicData {
             latest: None,
             last_received: None,
             msg_count: 0,
-            hz: 0.0,
             subscription: TopicSubscriptionState::Unsubscribed,
             subscription_error: None,
+            stats: None,
+            rate_history: VecDeque::new(),
         }
     }
 }
@@ -77,6 +84,19 @@ pub(crate) struct PendingTopicSubscriptionToggle {
 }
 
 impl AppState {
+    pub(crate) fn handle_topic_stats(&mut self, stats: Vec<TopicStats>) {
+        let now = Instant::now();
+        for stat in stats {
+            if let Some(topic) = self.topics.get_mut(&stat.topic) {
+                if topic.rate_history.len() == RATE_HISTORY_LEN {
+                    topic.rate_history.pop_front();
+                }
+                topic.rate_history.push_back(stat.rate_hz.round() as u64);
+                topic.stats = Some((stat, now));
+            }
+        }
+    }
+
     pub(crate) fn handle_topic_list(&mut self, topics: Vec<TopicInfo>) {
         let auto_subscribe_all = !self.subscriptions_customized;
         let mut current_topics = std::mem::take(&mut self.topics);
@@ -156,24 +176,15 @@ impl AppState {
                 latest: None,
                 last_received: None,
                 msg_count: 0,
-                hz: 0.0,
                 subscription: if should_be_subscribed {
                     TopicSubscriptionState::Subscribed
                 } else {
                     TopicSubscriptionState::Unsubscribed
                 },
                 subscription_error: None,
+                stats: None,
+                rate_history: VecDeque::new(),
             });
-
-        // Update Hz estimate
-        if let Some(last) = entry.last_received {
-            let dt = now.duration_since(last).as_secs_f64();
-            if dt > 0.0 {
-                // Exponential moving average
-                let instant_hz = 1.0 / dt;
-                entry.hz = entry.hz * 0.8 + instant_hz * 0.2;
-            }
-        }
 
         entry.latest = Some(data.clone());
         entry.last_received = Some(now);
@@ -228,9 +239,10 @@ impl AppState {
                     latest: None,
                     last_received: None,
                     msg_count: 0,
-                    hz: 0.0,
                     subscription: TopicSubscriptionState::Unsubscribed,
                     subscription_error: None,
+                    stats: None,
+                    rate_history: VecDeque::new(),
                 });
             entry.info.type_name = sub.type_name;
             entry.subscription = TopicSubscriptionState::Subscribed;
@@ -418,17 +430,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hz_goes_to_zero_when_topic_stops() {
-        let mut topic = TopicData::placeholder("/t");
-        let last = Instant::now();
-        topic.last_received = Some(last);
-        topic.hz = 10.0;
-        assert_eq!(
-            topic.hz_at(last + std::time::Duration::from_millis(500)),
-            10.0
-        );
-        assert_eq!(topic.hz_at(last + std::time::Duration::from_secs(2)), 0.0);
+    fn agent_stats_expire_when_they_stop_arriving() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![TopicInfo {
+            name: "/scan".into(),
+            type_name: "sensor_msgs/msg/LaserScan".into(),
+            publisher_count: 1,
+            subscriber_count: 0,
+        }]));
+        state.handle_topic_stats(vec![TopicStats {
+            topic: "/scan".into(),
+            rate_hz: 9.6,
+            bandwidth_bps: 0.0,
+            latency_ms: None,
+        }]);
+        let topic = &state.topics["/scan"];
+        let (_, at) = topic.stats.as_ref().unwrap();
+        assert_eq!(topic.current_stats(*at).map(|s| s.rate_hz), Some(9.6));
+        assert_eq!(topic.rate_history, [10]);
+        // After a disconnect the stats stop updating and are no longer shown.
+        assert!(topic.current_stats(*at + Duration::from_secs(5)).is_none());
     }
+
     use crate::state::AppState;
     use talos_common::protocol::messages::Response;
     use talos_common::protocol::types::{DynValue, Timestamp, TopicSub};
@@ -731,7 +754,6 @@ mod tests {
             topic.latest = Some(DynValue::String("before".into()));
             topic.last_received = Some(Instant::now());
             topic.msg_count = 41;
-            topic.hz = 12.5;
         }
 
         assert_eq!(
@@ -757,6 +779,5 @@ mod tests {
         assert_eq!(topic.latest, Some(DynValue::String("before".into())));
         assert_eq!(topic.last_received, before_last_received);
         assert_eq!(topic.msg_count, 41);
-        assert_eq!(topic.hz, 12.5);
     }
 }

@@ -10,7 +10,7 @@ use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use quinn::{RecvStream, SendStream};
 use tokio::sync::mpsc;
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::error::Error;
 use crate::protocol::codec::BincodeCodec;
@@ -141,15 +141,10 @@ async fn accept_data_streams(
 /// 1. First frame → `StreamHeader` (topic name + type)
 /// 2. Subsequent frames → `TopicFrame` (stamp + data)
 ///
-/// Uses `LengthDelimitedCodec` so the same codec handles both frame types
+/// Uses raw length-delimited framing so the same codec handles both frame types
 /// without any buffering ambiguity when switching between header and data.
 async fn read_data_stream(stream: RecvStream, tx: mpsc::UnboundedSender<(String, TopicFrame)>) {
-    let codec = LengthDelimitedCodec::builder()
-        .length_field_length(4)
-        .big_endian()
-        .max_frame_length(crate::protocol::codec::MAX_FRAME_SIZE)
-        .new_codec();
-    let mut framed = FramedRead::new(stream, codec);
+    let mut framed = FramedRead::new(stream, crate::protocol::codec::frame_codec());
 
     // ── header frame ──────────────────────────────────────────────────────────
     let header_bytes: Bytes = match framed.next().await {

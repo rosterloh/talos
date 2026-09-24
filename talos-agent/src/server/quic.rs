@@ -133,7 +133,7 @@ pub async fn handle_quic_client(
                     }
                     Some(Ok(other)) => {
                         let response =
-                            handle_control_request(&other, &config, &joint_publisher, &graph_handle).await;
+                            handle_control_request(&other, &config, &joint_publisher, &graph_handle, &router).await;
                         let _ = control_tx.send(response).await;
                     }
                     Some(Err(e)) => {
