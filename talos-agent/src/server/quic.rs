@@ -142,12 +142,12 @@ pub async fn handle_quic_client(
                 }
             }
             data = data_rx.recv() => {
-                if let Some(Response::TopicData { topic, stamp, data, .. }) = data {
-                    if let Some(send) = topic_streams.get_mut(&topic) {
-                        let frame = TopicFrame { stamp, data };
-                        if write_quic_frame(send, &frame).await.is_err() {
-                            topic_streams.remove(&topic);
-                        }
+                if let Some(Response::TopicData { topic, stamp, data, .. }) = data
+                    && let Some(send) = topic_streams.get_mut(&topic)
+                {
+                    let frame = TopicFrame { stamp, data };
+                    if write_quic_frame(send, &frame).await.is_err() {
+                        topic_streams.remove(&topic);
                     }
                 }
             }

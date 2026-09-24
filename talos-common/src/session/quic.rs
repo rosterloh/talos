@@ -129,16 +129,11 @@ async fn accept_data_streams(
     connection: quinn::Connection,
     data_tx: mpsc::UnboundedSender<(String, TopicFrame)>,
 ) {
-    loop {
-        match connection.accept_uni().await {
-            Ok(stream) => {
-                let tx = data_tx.clone();
-                tokio::spawn(async move {
-                    read_data_stream(stream, tx).await;
-                });
-            }
-            Err(_) => break,
-        }
+    while let Ok(stream) = connection.accept_uni().await {
+        let tx = data_tx.clone();
+        tokio::spawn(async move {
+            read_data_stream(stream, tx).await;
+        });
     }
 }
 
