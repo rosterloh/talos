@@ -365,6 +365,11 @@ mod tests {
                 }),
                 Request::Unsubscribe { topics } => Ok(Response::Unsubscribed { topics }),
                 Request::GetTopicStats => Ok(Response::TopicStats(vec![])),
+                Request::GetTopicEndpoints { topic } => Ok(Response::TopicEndpoints {
+                    topic,
+                    publishers: vec![],
+                    subscribers: vec![],
+                }),
                 _ => self
                     .request_responses
                     .lock()
@@ -484,7 +489,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn topic_stats_are_polled_every_second() {
+    async fn topic_stats_and_selected_endpoints_are_polled_every_second() {
         let state = Arc::new(Mutex::new(AppState::default()));
         let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
         let client = FakeClient::new(sample_topics());
@@ -504,6 +509,23 @@ mod tests {
             .filter(|r| matches!(r, Request::GetTopicStats))
             .count();
         assert_eq!(polls, 2);
+        let selected = sample_topics()[0].name.clone();
+        assert!(
+            client
+                .request_calls()
+                .contains(&Request::GetTopicEndpoints {
+                    topic: selected.clone()
+                })
+        );
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .topic_endpoints
+                .as_ref()
+                .map(|e| &e.topic),
+            Some(&selected)
+        );
     }
 
     #[tokio::test]

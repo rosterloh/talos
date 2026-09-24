@@ -429,6 +429,56 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn endpoints_render_with_incompatibility_warning() {
+        use talos_common::protocol::types::{
+            Durability, EndpointInfo, History, QosInfo, Reliability,
+        };
+        let endpoint = |node: &str, reliability| EndpointInfo {
+            node_name: node.into(),
+            node_namespace: "/".into(),
+            topic_type: "sensor_msgs/msg/LaserScan".into(),
+            qos: QosInfo {
+                reliability,
+                durability: Durability::Volatile,
+                history: History::KeepLast { depth: 5 },
+                deadline_ms: None,
+            },
+        };
+        let mut state = state_with_topic("/scan");
+        state.handle_response(Response::TopicEndpoints {
+            topic: "/scan".into(),
+            publishers: vec![endpoint("lidar", Reliability::BestEffort)],
+            subscribers: vec![endpoint("talos_agent", Reliability::Reliable)],
+        });
+
+        let screen = render(&state);
+        assert!(screen.contains("Publishers (1):"), "{screen}");
+        assert!(
+            screen.contains("/lidar  best_effort volatile keep_last(5)"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("/talos_agent  reliable volatile keep_last(5)"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("⚠ no match with /lidar: best-effort publisher, reliable subscriber"),
+            "{screen}"
+        );
+    }
+
+    #[test]
+    fn endpoints_for_another_topic_are_not_shown() {
+        let mut state = state_with_topic("/scan");
+        state.handle_response(Response::TopicEndpoints {
+            topic: "/other".into(),
+            publishers: vec![],
+            subscribers: vec![],
+        });
+        assert!(!render(&state).contains("Publishers"));
+    }
+
+    #[test]
     fn bandwidth_is_formatted_with_units() {
         assert_eq!(format_bandwidth(512.0), "512 B/s");
         assert_eq!(format_bandwidth(1536.0), "1.5 KB/s");
