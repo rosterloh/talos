@@ -58,11 +58,15 @@ fn test_config_uds(socket_path: &str) -> Arc<AgentConfig> {
 }
 
 fn inject(router: &RouterHandle, topic: &str) {
+    inject_value(router, topic, DynValue::Bool(true));
+}
+
+fn inject_value(router: &RouterHandle, topic: &str, data: DynValue) {
     let response = Response::TopicData {
         topic: topic.to_string(),
         type_name: "test/Type".to_string(),
         stamp: Timestamp { sec: 1, nanosec: 0 },
-        data: DynValue::Bool(true),
+        data,
     };
     // Use try_lock to avoid blocking in test helpers
     if let Ok(r) = router.try_lock() {
@@ -461,6 +465,77 @@ async fn quic_client_subscribes_and_receives_data() {
     assert_eq!(topic, "/odom");
 }
 
+/// A 10 MiB frame is within the protocol's 16 MiB limit and must reach a QUIC
+/// client; the data-stream codec used to cap frames at 8 MiB and kill the stream.
+#[cfg(feature = "quic")]
+#[tokio::test]
+async fn quic_client_receives_frames_above_8_mib() {
+    use talos_common::config::QuicTransportConfig;
+    use talos_common::session::QuicProtocolClient;
+    use talos_common::transport::quic::QuicTransport;
+
+    let config = Arc::new(AgentConfig {
+        transport: TransportSettings {
+            uds: None,
+            quic: Some(QuicTransportConfig {
+                bind_addr: "127.0.0.1:0".to_string(),
+                cert_path: None,
+                key_path: None,
+            }),
+        },
+        subscriptions: vec![SubscriptionConfig {
+            topic: "/cloud".to_string(),
+            msg_type: "sensor_msgs/msg/PointCloud2".to_string(),
+            qos: QosProfile::Default,
+        }],
+        control: None,
+        poses: Default::default(),
+    });
+
+    let router = make_router();
+    let endpoint = QuicTransport::bind(config.transport.quic.as_ref().unwrap())
+        .await
+        .unwrap();
+    let quic_addr = endpoint.local_addr().unwrap();
+    {
+        let r = Arc::clone(&router);
+        let cfg = Arc::clone(&config);
+        tokio::spawn(async move {
+            if let Some(inc) = endpoint.accept().await
+                && let Ok(conn) = inc.await
+            {
+                talos_agent::server::handle_quic_client(
+                    conn,
+                    cfg,
+                    r,
+                    make_joint_publisher(),
+                    make_graph_handle(),
+                )
+                .await;
+            }
+        });
+    }
+
+    let mut client = QuicProtocolClient::connect(&quic_addr.to_string())
+        .await
+        .unwrap();
+    client.subscribe(&["/cloud".to_string()]).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    inject_value(
+        &router,
+        "/cloud",
+        DynValue::Bytes(vec![0; 10 * 1024 * 1024]),
+    );
+
+    let (topic, frame) = tokio::time::timeout(Duration::from_secs(5), client.recv_data())
+        .await
+        .expect("timed out waiting for large QUIC frame")
+        .expect("recv_data error");
+    assert_eq!(topic, "/cloud");
+    assert!(matches!(frame.data, DynValue::Bytes(b) if b.len() == 10 * 1024 * 1024));
+}
+
 // ── 8.3: Dual-mode agent serves UDS and QUIC simultaneously ─────────────────
 
 #[cfg(feature = "quic")]
@@ -591,4 +666,26 @@ async fn uds_unsubscribe_stops_data_delivery() {
         result.is_err(),
         "recv_data should have timed out after unsubscribe, but got a frame"
     );
+}
+
+/// A frame over the 16 MiB protocol limit must be dropped, not tear down the
+/// client's connection.
+#[tokio::test]
+async fn uds_oversized_frame_is_dropped_without_disconnecting() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("big.sock").to_string_lossy().into_owned();
+    let router = spawn_uds_server(test_config_uds(&path)).await;
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+    client.subscribe(&["/odom".to_string()]).await.unwrap();
+
+    inject_value(&router, "/odom", DynValue::Bytes(vec![0; 17 * 1024 * 1024]));
+    inject(&router, "/odom");
+
+    let (topic, frame) = tokio::time::timeout(Duration::from_secs(2), client.recv_data())
+        .await
+        .expect("timed out: oversized frame closed the session")
+        .expect("recv_data error");
+    assert_eq!(topic, "/odom");
+    assert_eq!(frame.data, DynValue::Bool(true));
 }

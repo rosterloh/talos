@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
 use talos_common::config::AgentConfig;
+use talos_common::error::Error;
 use talos_common::protocol::codec::BincodeCodec;
 use talos_common::protocol::messages::{Request, Response};
 use talos_common::transport::uds::UdsTransport;
 use talos_common::transport::{TransportConfig, TransportServer};
 use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use super::RouterHandle;
 use super::requests::handle_request;
@@ -86,12 +87,15 @@ async fn handle_uds_connection(
             }
             data = data_rx.recv() => {
                 match data {
-                    Some(response) => {
-                        if let Err(e) = writer.send(response).await {
+                    Some(response) => match writer.send(response).await {
+                        Ok(()) => {}
+                        // The encoder rejects before writing, so the stream stays usable.
+                        Err(e @ Error::FrameTooLarge { .. }) => warn!("dropping topic data: {e}"),
+                        Err(e) => {
                             error!("failed to push topic data: {e}");
                             break;
                         }
-                    }
+                    },
                     None => break,
                 }
             }

@@ -4,7 +4,8 @@ use tokio_util::codec::{Decoder, Encoder};
 
 use crate::error::Error;
 
-const DEFAULT_MAX_FRAME_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
+/// Largest frame payload accepted on any Talos stream (UDS or QUIC).
+pub const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
 const LENGTH_PREFIX_SIZE: usize = 4;
 
 // bincode's legacy config matches the bincode 1 wire format (fixed-width
@@ -36,7 +37,7 @@ pub struct BincodeCodec<T> {
 impl<T> BincodeCodec<T> {
     pub fn new() -> Self {
         Self {
-            max_frame_size: DEFAULT_MAX_FRAME_SIZE,
+            max_frame_size: MAX_FRAME_SIZE,
             _marker: std::marker::PhantomData,
         }
     }

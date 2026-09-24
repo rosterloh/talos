@@ -147,6 +147,7 @@ async fn read_data_stream(stream: RecvStream, tx: mpsc::UnboundedSender<(String,
     let codec = LengthDelimitedCodec::builder()
         .length_field_length(4)
         .big_endian()
+        .max_frame_length(crate::protocol::codec::MAX_FRAME_SIZE)
         .new_codec();
     let mut framed = FramedRead::new(stream, codec);
 

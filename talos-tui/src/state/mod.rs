@@ -109,6 +109,8 @@ pub struct AppState {
     pub editing_param: bool,
     pub param_input: String,
     pub param_status: Option<String>,
+    /// A load or set was sent and its first reply should update `param_status`.
+    pub param_awaiting_reply: bool,
 }
 
 impl Default for AppState {
@@ -149,6 +151,7 @@ impl Default for AppState {
             editing_param: false,
             param_input: String::new(),
             param_status: None,
+            param_awaiting_reply: false,
         }
     }
 }
@@ -179,7 +182,11 @@ impl AppState {
             Response::Subscribed { topics } => self.handle_subscribed_topics(topics),
             Response::Unsubscribed { topics } => self.handle_unsubscribed_topics(topics),
             Response::Ok(_) => {}
-            Response::Error(_) => {}
+            Response::Error(e) => {
+                if std::mem::take(&mut self.param_awaiting_reply) {
+                    self.param_status = Some(format!("error: {e}"));
+                }
+            }
         }
     }
 }

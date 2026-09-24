@@ -4,7 +4,8 @@ use bytes::{BufMut, BytesMut};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use talos_common::config::AgentConfig;
-use talos_common::protocol::codec::BincodeCodec;
+use talos_common::error::Error;
+use talos_common::protocol::codec::{BincodeCodec, MAX_FRAME_SIZE};
 use talos_common::protocol::messages::{Request, Response};
 use talos_common::protocol::types::{StreamHeader, TopicFrame, TopicSub};
 use tokio_util::codec::{FramedRead, FramedWrite};
@@ -146,8 +147,14 @@ pub async fn handle_quic_client(
                     && let Some(send) = topic_streams.get_mut(&topic)
                 {
                     let frame = TopicFrame { stamp, data };
-                    if write_quic_frame(send, &frame).await.is_err() {
-                        topic_streams.remove(&topic);
+                    match write_quic_frame(send, &frame).await {
+                        Ok(()) => {}
+                        Err(e @ Error::FrameTooLarge { .. }) => {
+                            warn!(topic = %topic, "dropping topic data: {e}");
+                        }
+                        Err(_) => {
+                            topic_streams.remove(&topic);
+                        }
                     }
                 }
             }
@@ -165,12 +172,16 @@ pub async fn handle_quic_client(
 async fn write_quic_frame<T: Serialize>(
     send: &mut quinn::SendStream,
     value: &T,
-) -> Result<(), String> {
-    let payload = talos_common::protocol::codec::to_vec(value).map_err(|e| e.to_string())?;
-    let len: u32 = u32::try_from(payload.len())
-        .map_err(|_| format!("frame too large: {} bytes exceeds u32::MAX", payload.len()))?;
+) -> Result<(), Error> {
+    let payload = talos_common::protocol::codec::to_vec(value)?;
+    if payload.len() > MAX_FRAME_SIZE {
+        return Err(Error::FrameTooLarge {
+            size: payload.len(),
+            max: MAX_FRAME_SIZE,
+        });
+    }
     let mut buf = BytesMut::with_capacity(4 + payload.len());
-    buf.put_u32(len);
+    buf.put_u32(payload.len() as u32);
     buf.put_slice(&payload);
-    send.write_all(&buf).await.map_err(|e| e.to_string())
+    send.write_all(&buf).await.map_err(|e| Error::Io(e.into()))
 }
