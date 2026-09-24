@@ -11,6 +11,12 @@ Merging that pull request runs the version bump workflow, promotes
 `version:minor` or `version:major` to the `dev` -> `main` pull request when the
 release should be larger than a patch bump.
 
+The bump moves the version in `Cargo.toml`, `Cargo.lock` and `pixi.toml` together.
+Merge the release pull request with a merge commit rather than a squash, so `dev`
+and `main` do not diverge. The repository deletes merged head branches
+automatically; a `Keep dev` repository ruleset blocks deleting `dev`, so it
+survives the release merge.
+
 ## Workspace Checks
 
 Without ROS 2:

@@ -7,6 +7,18 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Fixed
+
+- The version bump workflow now also moves the `[workspace]` version in
+  `pixi.toml`, which had been left at 0.1.5; it is set to 1.0.0 to match the
+  release.
+
+### Changed
+
+- Protect `dev` from deletion with a repository ruleset, so the automatic
+  head-branch cleanup no longer deletes it when a `dev` -> `main` release pull
+  request merges.
+
 ## [1.0.0] - 2026-09-24
 
 ### Added

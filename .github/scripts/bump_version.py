@@ -18,6 +18,7 @@ PACKAGE_BLOCK_RE = re.compile(r"(?ms)^\[\[package\]\]\n.*?(?=^\[\[package\]\]|\Z
 PACKAGE_NAME_RE = re.compile(r'(?m)^name\s*=\s*"([^"]+)"')
 PACKAGE_VERSION_RE = re.compile(r'(?m)^version\s*=\s*"\d+\.\d+\.\d+"')
 WORKSPACE_MEMBERS_RE = re.compile(r"(?ms)^\[workspace\]\n.*?^members\s*=\s*\[(.*?)\]")
+PIXI_VERSION_RE = re.compile(r'(?ms)(^\[workspace\]\n(?:(?!^\[).)*?^version\s*=\s*")\d+\.\d+\.\d+(")')
 QUOTED_RE = re.compile(r'"([^"]+)"')
 
 
@@ -67,6 +68,16 @@ def update_lockfile(lockfile: Path, package_names: set[str], version: str) -> No
     lockfile.write_text(PACKAGE_BLOCK_RE.sub(replace_block, lock_text))
 
 
+def update_pixi_manifest(manifest: Path, version: str) -> None:
+    if not manifest.exists():
+        return
+
+    text, count = PIXI_VERSION_RE.subn(rf"\g<1>{version}\g<2>", manifest.read_text(), count=1)
+    if not count:
+        raise RuntimeError(f"could not find [workspace] version in {manifest}")
+    manifest.write_text(text)
+
+
 def write_github_output(version: str) -> None:
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
@@ -105,6 +116,7 @@ def main() -> None:
     )
     cargo_path.write_text(new_cargo_text)
     update_lockfile(root / "Cargo.lock", package_names, new_version)
+    update_pixi_manifest(root / "pixi.toml", new_version)
 
 
 if __name__ == "__main__":
