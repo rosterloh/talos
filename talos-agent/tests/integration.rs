@@ -325,6 +325,157 @@ async fn uds_parameter_round_trip_against_live_node() {
     }
 }
 
+#[tokio::test]
+async fn uds_get_logger_level_without_graph_returns_error() {
+    let dir = TempDir::new().unwrap();
+    let path = dir
+        .path()
+        .join("loglevel.sock")
+        .to_string_lossy()
+        .into_owned();
+
+    let config = test_config_uds(&path);
+    spawn_uds_server(config).await;
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+    let response = client
+        .request(Request::GetLoggerLevel {
+            node: "/some_node".to_string(),
+            logger: String::new(),
+        })
+        .await
+        .unwrap();
+
+    match response {
+        Response::Error(msg) => assert!(
+            msg.contains("not available"),
+            "expected node-unavailable error, got: {msg}"
+        ),
+        other => panic!("unexpected response: {other:?}"),
+    }
+}
+
+/// End-to-end logger level round trip against a live ROS 2 node.
+///
+/// rclrs can't host the rclcpp logger services, so the test node serves its
+/// own `get_logger_levels` / `set_logger_levels` backed by a map, which is
+/// enough to drive the agent's clients through DDS.
+#[tokio::test]
+async fn uds_logger_level_round_trip_against_live_node() {
+    use rclrs::CreateBasicExecutor;
+    use ros_env::rcl_interfaces;
+    use std::sync::Mutex as StdMutex;
+
+    const NODE: &str = "/talos_logger_live_test";
+
+    let (node_tx, node_rx) = std::sync::mpsc::channel::<rclrs::Node>();
+    std::thread::spawn(move || {
+        let context = rclrs::Context::default_from_env().expect("rclrs context");
+        let mut executor = context.create_basic_executor();
+        let node = executor
+            .create_node("talos_logger_live_test")
+            .expect("create node");
+        let levels = Arc::new(StdMutex::new(HashMap::<String, u32>::new()));
+
+        let get_levels = Arc::clone(&levels);
+        let _get = node
+            .create_service::<rcl_interfaces::srv::GetLoggerLevels, _>(
+                "/talos_logger_live_test/get_logger_levels",
+                move |req: rcl_interfaces::srv::GetLoggerLevels_Request| {
+                    let levels = get_levels.lock().unwrap();
+                    rcl_interfaces::srv::GetLoggerLevels_Response {
+                        levels: req
+                            .names
+                            .into_iter()
+                            .map(|name| rcl_interfaces::msg::LoggerLevel {
+                                level: levels.get(&name).copied().unwrap_or(0),
+                                name,
+                            })
+                            .collect(),
+                    }
+                },
+            )
+            .expect("create get_logger_levels");
+        let _set = node
+            .create_service::<rcl_interfaces::srv::SetLoggerLevels, _>(
+                "/talos_logger_live_test/set_logger_levels",
+                move |req: rcl_interfaces::srv::SetLoggerLevels_Request| {
+                    let mut map = levels.lock().unwrap();
+                    rcl_interfaces::srv::SetLoggerLevels_Response {
+                        results: req
+                            .levels
+                            .into_iter()
+                            .map(|l| {
+                                map.insert(l.name, l.level);
+                                rcl_interfaces::msg::SetLoggerLevelsResult {
+                                    successful: true,
+                                    reason: String::new(),
+                                }
+                            })
+                            .collect(),
+                    }
+                },
+            )
+            .expect("create set_logger_levels");
+        node_tx.send(Arc::clone(&node)).expect("send node handle");
+        executor.spin(rclrs::SpinOptions::default());
+    });
+    let node = node_rx.recv().expect("receive node handle");
+
+    let dir = TempDir::new().unwrap();
+    let path = dir
+        .path()
+        .join("logger_live.sock")
+        .to_string_lossy()
+        .into_owned();
+    let config = test_config_uds(&path);
+
+    let graph: GraphHandle = Arc::new(Mutex::new(Some(node)));
+    tokio::spawn(async move {
+        let _ =
+            talos_agent::server::run(config, make_router(), make_joint_publisher(), graph).await;
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+
+    let response = client
+        .request(Request::SetLoggerLevel {
+            node: NODE.into(),
+            logger: String::new(),
+            level: 10,
+        })
+        .await
+        .unwrap();
+    match response {
+        Response::LoggerLevelSet {
+            logger,
+            successful,
+            reason,
+            ..
+        } => {
+            assert!(successful, "set rejected: {reason}");
+            assert_eq!(logger, "talos_logger_live_test");
+        }
+        other => panic!("set: unexpected response: {other:?}"),
+    }
+
+    let response = client
+        .request(Request::GetLoggerLevel {
+            node: NODE.into(),
+            logger: String::new(),
+        })
+        .await
+        .unwrap();
+    match response {
+        Response::LoggerLevel { logger, level, .. } => {
+            assert_eq!(logger, "talos_logger_live_test");
+            assert_eq!(level, 10, "level after set");
+        }
+        other => panic!("get: unexpected response: {other:?}"),
+    }
+}
+
 #[cfg(feature = "quic")]
 #[tokio::test]
 async fn quic_list_poses_returns_configured_poses() {

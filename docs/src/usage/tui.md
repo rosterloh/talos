@@ -70,6 +70,10 @@ state after reconnect.
 The Nodes tab lists ROS 2 nodes and shows publishers, subscribers, and services
 for the selected node.
 
+Press `l` to load the selected node's logger level into the detail pane and
+`L` to set it to the next level (DEBUG, INFO, WARN, ERROR, FATAL, then back to
+DEBUG). See [Logger Levels](../features/node-introspection.md#logger-levels).
+
 ## Logs
 
 The Log tab displays `/rosout` entries with timestamp, severity, node, and

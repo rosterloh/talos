@@ -203,3 +203,32 @@ pub struct PoseInfo {
 }
 
 pub use super::params::{ParamInfo, ParamValue};
+
+/// ROS 2 logger severity levels (`rcl_interfaces/msg/LoggerLevel`). `UNSET`
+/// means the logger inherits the default level.
+pub const LOGGER_LEVELS: [(u32, &str); 6] = [
+    (0, "UNSET"),
+    (10, "DEBUG"),
+    (20, "INFO"),
+    (30, "WARN"),
+    (40, "ERROR"),
+    (50, "FATAL"),
+];
+
+/// Name of a logger level, or `None` for a non-standard value.
+pub fn logger_level_name(level: u32) -> Option<&'static str> {
+    LOGGER_LEVELS
+        .iter()
+        .find(|(l, _)| *l == level)
+        .map(|(_, name)| *name)
+}
+
+/// Parse a logger level name, case-insensitively (`warning` is accepted for `WARN`).
+pub fn parse_logger_level(name: &str) -> Option<u32> {
+    let upper = name.trim().to_ascii_uppercase();
+    let upper = if upper == "WARNING" { "WARN" } else { &upper };
+    LOGGER_LEVELS
+        .iter()
+        .find(|(_, n)| *n == upper)
+        .map(|(l, _)| *l)
+}

@@ -133,7 +133,9 @@ fn draw_status_bar(f: &mut Frame, state: &AppState, area: Rect) {
         Tab::Topics => {
             "↑↓ navigate  / filter  s toggle sub  Enter select  ←→ expand/collapse  Tab pane  r refresh  q quit  ? help"
         }
-        Tab::Nodes => "↑↓ navigate  / filter  Enter select  Tab pane  r refresh  q quit  ? help",
+        Tab::Nodes => {
+            "↑↓ navigate  / filter  l logger level  L cycle level  Enter select  Tab pane  r refresh  q quit  ? help"
+        }
         Tab::Log => "↑↓ scroll  / search  f filter severity  r refresh  q quit  ? help",
         Tab::Joints => {
             "↑↓ navigate  j/o joints/poses  e edit joint  x execute pose  r refresh  q quit  ? help"
