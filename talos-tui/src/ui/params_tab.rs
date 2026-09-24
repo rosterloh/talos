@@ -80,6 +80,7 @@ fn draw_param_list(f: &mut Frame, state: &AppState, area: Rect) {
         Some(node) => format!(" PARAMETERS · {node} "),
         None => " PARAMETERS ".to_string(),
     };
+    let title = super::filter_title(title, &state.param_filter);
 
     if state.parameters.is_empty() {
         let hint = if state.param_node.is_some() {
@@ -102,8 +103,8 @@ fn draw_param_list(f: &mut Frame, state: &AppState, area: Rect) {
     }
 
     let items: Vec<ListItem> = state
-        .parameters
-        .iter()
+        .filtered_parameters()
+        .into_iter()
         .enumerate()
         .map(|(i, p)| {
             let selected = state.active_pane == Pane::Right && i == state.param_selected;
@@ -141,20 +142,19 @@ fn draw_param_list(f: &mut Frame, state: &AppState, area: Rect) {
 fn draw_footer(f: &mut Frame, state: &AppState, area: Rect) {
     let (title, line) = if state.editing_param {
         let name = state
-            .parameters
+            .filtered_parameters()
             .get(state.param_selected)
             .map(|p| p.name.as_str())
             .unwrap_or("");
-        (
-            " EDIT (Enter to apply, Esc to cancel) ",
-            Line::from(vec![
-                Span::styled(format!("set {name} = "), Style::default().fg(Color::Yellow)),
-                Span::styled(
-                    format!("{}\u{2588}", state.param_input),
-                    Style::default().fg(Color::White),
-                ),
-            ]),
-        )
+        let mut spans = vec![Span::styled(
+            format!("set {name} = "),
+            Style::default().fg(Color::Yellow),
+        )];
+        spans.extend(super::input_spans(
+            &state.param_input,
+            Style::default().fg(Color::White),
+        ));
+        (" EDIT (Enter to apply, Esc to cancel) ", Line::from(spans))
     } else if let Some(status) = &state.param_status {
         (
             " STATUS ",

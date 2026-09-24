@@ -40,6 +40,14 @@ pub fn draw(f: &mut Frame, area: Rect) {
             Span::styled("  r        ", Style::default().fg(Color::Yellow)),
             Span::raw("Refresh topic and node lists"),
         ]),
+        Line::from(vec![
+            Span::styled("  /        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Filter list / search log (case-insensitive substring)"),
+        ]),
+        Line::from(vec![
+            Span::styled("           ", Style::default().fg(Color::Yellow)),
+            Span::raw("←/→ cursor, Ctrl-U clear, Enter apply, Esc cancel"),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
             "Topics Tab",

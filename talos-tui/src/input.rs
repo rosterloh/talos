@@ -1,3 +1,4 @@
+mod filter;
 mod params;
 
 use std::collections::HashMap;
@@ -25,6 +26,11 @@ pub fn handle_key_event(
         return AppAction::Continue;
     }
 
+    if state.filter_prompt.is_some() {
+        filter::handle_key(state, key);
+        return AppAction::Continue;
+    }
+
     if state.editing_joint {
         handle_joint_edit_key(state, cmd_tx, key);
         return AppAction::Continue;
@@ -49,6 +55,10 @@ pub fn handle_key_event(
         KeyCode::Char('r') => {
             // The client treats `ListTopics` as "refresh the lists now".
             let _ = cmd_tx.send(Request::ListTopics);
+            AppAction::Continue
+        }
+        KeyCode::Char('/') => {
+            filter::open(state);
             AppAction::Continue
         }
         KeyCode::Char('1') => {
@@ -272,13 +282,16 @@ fn handle_up(state: &mut AppState) {
 fn handle_down(state: &mut AppState) {
     match state.active_tab {
         Tab::Topics => {
-            if state.active_pane == Pane::Left && state.topic_selected + 1 < state.topic_names.len()
+            if state.active_pane == Pane::Left
+                && state.topic_selected + 1 < state.filtered_topic_names().len()
             {
                 state.topic_selected += 1;
             }
         }
         Tab::Nodes => {
-            if state.active_pane == Pane::Left && state.node_selected + 1 < state.nodes.len() {
+            if state.active_pane == Pane::Left
+                && state.node_selected + 1 < state.filtered_nodes().len()
+            {
                 state.node_selected += 1;
             }
         }
@@ -307,7 +320,7 @@ fn handle_down(state: &mut AppState) {
 fn handle_left(state: &mut AppState) {
     if state.active_tab == Tab::Topics
         && state.active_pane == Pane::Right
-        && let Some(topic_name) = state.topic_names.get(state.topic_selected)
+        && let Some(topic_name) = state.selected_topic_name()
     {
         let prefix = format!("{topic_name}.");
         let keys_to_collapse: Vec<String> = state
@@ -325,11 +338,11 @@ fn handle_left(state: &mut AppState) {
 fn handle_right(state: &mut AppState) {
     if state.active_tab == Tab::Topics
         && state.active_pane == Pane::Right
-        && let Some(topic_name) = state.topic_names.get(state.topic_selected)
-        && let Some(topic_data) = state.topics.get(topic_name)
+        && let Some(topic_name) = state.selected_topic_name()
+        && let Some(topic_data) = state.topics.get(&topic_name)
         && let Some(ref data) = topic_data.latest
     {
-        expand_first_level(data, topic_name, &mut state.tree_expanded);
+        expand_first_level(data, &topic_name, &mut state.tree_expanded);
     }
 }
 
@@ -347,7 +360,7 @@ fn expand_first_level(value: &DynValue, path: &str, expanded: &mut HashMap<Strin
 fn handle_enter(state: &mut AppState) {
     if state.active_tab == Tab::Topics
         && state.active_pane == Pane::Right
-        && let Some(topic_name) = state.topic_names.get(state.topic_selected).cloned()
+        && let Some(topic_name) = state.selected_topic_name()
         && let Some(topic_data) = state.topics.get(&topic_name)
         && let Some(ref data) = topic_data.latest
     {
@@ -438,6 +451,39 @@ mod tests {
             publisher_count: 1,
             subscriber_count: 0,
         }
+    }
+
+    #[test]
+    fn filter_prompt_captures_global_keys_and_clamps_selection() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![
+            topic("/camera", "sensor_msgs/msg/Image"),
+            topic("/lidar", "sensor_msgs/msg/LaserScan"),
+            topic("/odom", "nav_msgs/msg/Odometry"),
+        ]));
+        state.topic_selected = 2;
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        let press = |state: &mut AppState, code| {
+            handle_key_event(state, &cmd_tx, KeyEvent::new(code, KeyModifiers::NONE))
+        };
+
+        press(&mut state, KeyCode::Char('/'));
+        for c in "q2?".chars() {
+            assert_eq!(press(&mut state, KeyCode::Char(c)), AppAction::Continue);
+        }
+        assert_eq!(state.active_tab, Tab::Topics);
+        assert_eq!(state.topic_filter, "q2?");
+        assert!(!state.show_help);
+        assert_eq!(state.topic_selected, 0);
+
+        press(&mut state, KeyCode::Esc);
+        press(&mut state, KeyCode::Char('/'));
+        for c in "LID".chars() {
+            press(&mut state, KeyCode::Char(c));
+        }
+        press(&mut state, KeyCode::Enter);
+        assert_eq!(state.topic_filter, "LID");
+        assert_eq!(state.selected_topic_name().as_deref(), Some("/lidar"));
     }
 
     #[test]

@@ -3,6 +3,7 @@ use talos_common::protocol::messages::Request;
 use talos_common::protocol::types::ParamValue;
 use tokio::sync::mpsc;
 
+use super::filter;
 use crate::state::{AppState, Pane, node_fqn};
 
 pub(super) fn select_previous(state: &mut AppState) {
@@ -28,7 +29,7 @@ pub(super) fn select_next(state: &mut AppState) {
             }
         }
         Pane::Right => {
-            if state.param_selected + 1 < state.parameters.len() {
+            if state.param_selected + 1 < state.filtered_parameters().len() {
                 state.param_selected += 1;
             }
         }
@@ -36,10 +37,18 @@ pub(super) fn select_next(state: &mut AppState) {
 }
 
 pub(super) fn begin_edit_selected(state: &mut AppState) {
-    if state.active_pane == Pane::Right && state.param_selected < state.parameters.len() {
-        state.editing_param = true;
-        state.param_input = state.parameters[state.param_selected].value.to_string();
+    if state.active_pane != Pane::Right {
+        return;
     }
+    let Some(value) = state
+        .filtered_parameters()
+        .get(state.param_selected)
+        .map(|p| p.value.to_string())
+    else {
+        return;
+    };
+    state.editing_param = true;
+    state.param_input = value.into();
 }
 
 pub(super) fn handle_edit_key(
@@ -53,11 +62,9 @@ pub(super) fn handle_edit_key(
             state.param_input.clear();
         }
         KeyCode::Enter => handle_input_submit(state, cmd_tx),
-        KeyCode::Backspace => {
-            state.param_input.pop();
+        _ => {
+            filter::edit_text(&mut state.param_input, key);
         }
-        KeyCode::Char(c) => state.param_input.push(c),
-        _ => {}
     }
 }
 
@@ -81,12 +88,16 @@ fn handle_input_submit(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Requ
         state.editing_param = false;
         return;
     };
-    let Some(param) = state.parameters.get(state.param_selected) else {
+    let Some(param) = state
+        .filtered_parameters()
+        .get(state.param_selected)
+        .copied()
+    else {
         state.editing_param = false;
         return;
     };
     let name = param.name.clone();
-    let value = ParamValue::parse_preserving_type(&state.param_input, &param.value);
+    let value = ParamValue::parse_preserving_type(state.param_input.as_str(), &param.value);
     let _ = cmd_tx.send(Request::SetParameter {
         node: node.clone(),
         name: name.clone(),
@@ -114,7 +125,7 @@ mod tests {
                 value: ParamValue::String("42".into()),
             }],
             editing_param: true,
-            param_input: "42".into(),
+            param_input: "42".to_string().into(),
             ..Default::default()
         };
 

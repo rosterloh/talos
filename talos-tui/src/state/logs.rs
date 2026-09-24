@@ -1,6 +1,7 @@
 use talos_common::protocol::types::DynValue;
 
 use super::AppState;
+use super::filter::matches_filter;
 
 #[derive(Debug, Clone)]
 pub struct LogEntry {
@@ -79,7 +80,7 @@ impl AppState {
     fn log_entry_visible(&self, e: &LogEntry) -> bool {
         self.log_severity_filter.matches(&e.level)
             && (self.log_node_filter.is_empty() || e.node.contains(&self.log_node_filter))
-            && (self.log_search.is_empty() || e.message.contains(&self.log_search))
+            && matches_filter(&e.message, &self.log_search)
     }
 }
 

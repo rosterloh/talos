@@ -11,7 +11,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
 
-use crate::state::{AppState, Tab, TransportType};
+use crate::state::{AppState, Tab, TextInput, TransportType};
 
 pub fn draw(f: &mut Frame, state: &AppState) {
     let chunks = Layout::default()
@@ -93,17 +93,54 @@ fn draw_tab_bar(f: &mut Frame, state: &AppState, area: Rect) {
     f.render_widget(indicator, indicator_area);
 }
 
+/// Pane title with the active `/` filter appended, e.g. ` TOPICS [/cam] `.
+pub(super) fn filter_title(title: String, filter: &str) -> String {
+    if filter.is_empty() {
+        title
+    } else {
+        format!("{title}[/{filter}] ")
+    }
+}
+
+/// Prompt text with the cursor cell shown reversed.
+pub(super) fn input_spans(input: &TextInput, style: Style) -> Vec<Span<'_>> {
+    let (before, rest) = input.split();
+    let mut chars = rest.chars();
+    let cursor = chars.next().map_or(" ".to_string(), String::from);
+    vec![
+        Span::styled(before, style),
+        Span::styled(cursor, style.add_modifier(Modifier::REVERSED)),
+        Span::styled(chars.as_str(), style),
+    ]
+}
+
 fn draw_status_bar(f: &mut Frame, state: &AppState, area: Rect) {
+    if let Some(prompt) = &state.filter_prompt {
+        let mut spans = vec![Span::styled(" /", Style::default().fg(Color::Yellow))];
+        spans.extend(input_spans(
+            &prompt.input,
+            Style::default().fg(Color::White),
+        ));
+        spans.push(Span::styled(
+            "   Enter apply  Esc cancel  Ctrl-U clear",
+            Style::default().fg(Color::DarkGray),
+        ));
+        f.render_widget(Paragraph::new(Line::from(spans)), area);
+        return;
+    }
+
     let hints = match state.active_tab {
         Tab::Topics => {
-            "↑↓ navigate  s toggle sub  Enter select  ←→ expand/collapse  Tab pane  r refresh  q quit  ? help"
+            "↑↓ navigate  / filter  s toggle sub  Enter select  ←→ expand/collapse  Tab pane  r refresh  q quit  ? help"
         }
-        Tab::Nodes => "↑↓ navigate  Enter select  Tab pane  r refresh  q quit  ? help",
-        Tab::Log => "↑↓ scroll  f filter severity  r refresh  q quit  ? help",
+        Tab::Nodes => "↑↓ navigate  / filter  Enter select  Tab pane  r refresh  q quit  ? help",
+        Tab::Log => "↑↓ scroll  / search  f filter severity  r refresh  q quit  ? help",
         Tab::Joints => {
             "↑↓ navigate  j/o joints/poses  e edit joint  x execute pose  r refresh  q quit  ? help"
         }
-        Tab::Params => "↑↓ navigate  Tab pane  Enter load  e edit value  r refresh  q quit  ? help",
+        Tab::Params => {
+            "↑↓ navigate  / filter params  Tab pane  Enter load  e edit value  r refresh  q quit  ? help"
+        }
     };
 
     let bar = Paragraph::new(Line::from(vec![
