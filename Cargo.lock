@@ -2554,7 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "talos-agent"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bytes",
  "clap",
@@ -2574,7 +2574,7 @@ dependencies = [
 
 [[package]]
 name = "talos-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "base64 0.23.1",
  "clap",
@@ -2590,7 +2590,7 @@ dependencies = [
 
 [[package]]
 name = "talos-common"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bincode",
  "bytes",
@@ -2610,7 +2610,7 @@ dependencies = [
 
 [[package]]
 name = "talos-tui"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "crossterm",
  "futures-util",

@@ -7,6 +7,8 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-24
+
 ### Added
 
 - The CLI has a global `--json` flag. `list-topics`, `list-nodes`,

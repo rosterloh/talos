@@ -3,7 +3,7 @@ authors = ["Richard Osterloh <richard.osterloh@gmail.com>"]
 channels = ["https://repo.prefix.dev/robostack-lyrical", "conda-forge"]
 name = "talos"
 platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
-version = "1.0.0"
+version = "1.0.1"
 
 # The agent links rclrs (from crates.io) against the ROS 2 Lyrical runtime and
 # the pre-generated Rust message bindings shipped by the robostack-lyrical
