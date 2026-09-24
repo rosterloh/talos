@@ -25,6 +25,7 @@ Clients send `Request` values:
 - `ListParameters { node }`
 - `GetParameters { node, names }`
 - `SetParameter { node, name, value }`
+- `GetTopicStats`
 
 ## Responses
 
@@ -40,6 +41,7 @@ The agent replies with `Response` values:
 - `ParameterSet { node, name, successful, reason }`
 - `Ok`
 - `Error`
+- `TopicStats` (list of `{ topic, rate_hz, bandwidth_bps, latency_ms }`)
 
 UDS carries control responses and topic data on the same framed connection.
 Because that connection carries data for multiple topics, UDS topic frames keep
@@ -49,6 +51,19 @@ QUIC uses a bidirectional stream for control and server-initiated
 unidirectional streams for topic data. A topic stream starts with a
 `StreamHeader` containing the topic and type name, then carries `TopicFrame`
 values with timestamp and data.
+
+## Compatibility
+
+bincode encodes each enum variant by its index, so new `Request` and
+`Response` variants are only ever appended. A test in `protocol/tests.rs`
+enforces the existing indices.
+
+When an agent receives a request frame it can't decode, typically a variant
+added by a newer client, it replies with `Error` and keeps the connection
+open. Agents up to v1.0.0 instead close the connection. To cope with that,
+the TUI sends a single `GetTopicStats` after connecting. If the connection
+closes on it, the TUI stops sending `GetTopicStats` to that agent until it is
+restarted.
 
 ## DynValue
 

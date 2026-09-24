@@ -84,6 +84,9 @@ pub async fn run(
 ///    and outgoing commands from the UI.
 ///
 /// On reconnect, this function is called again with a fresh client.
+/// How often to fetch agent-side topic stats (matches the agent's window).
+const STATS_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
 async fn connect_and_run<C: ProtocolClient>(
     mut client: C,
     state: &Arc<Mutex<AppState>>,
@@ -121,6 +124,32 @@ async fn connect_and_run<C: ProtocolClient>(
         s.handle_response(resp);
     }
 
+    // ── probe for agent-side topic stats ─────────────────────────────────────
+    // Agents older than `GetTopicStats` can't decode it and close the
+    // connection, so probe once and remember the answer across reconnects.
+    let probe = state.lock().unwrap().agent_stats_supported != Some(false);
+    if probe {
+        match client.request(Request::GetTopicStats).await {
+            Ok(response) => {
+                let mut s = state.lock().unwrap();
+                s.agent_stats_supported = Some(matches!(response, Response::TopicStats(_)));
+                s.handle_response(response);
+            }
+            Err(e) => {
+                state.lock().unwrap().agent_stats_supported = Some(false);
+                warn!(
+                    "agent closed the connection on GetTopicStats; treating it as an older agent without stats"
+                );
+                return Err(e.to_string());
+            }
+        }
+    }
+    let stats_enabled = state.lock().unwrap().agent_stats_supported == Some(true);
+    let mut stats_tick = tokio::time::interval_at(
+        tokio::time::Instant::now() + STATS_POLL_INTERVAL,
+        STATS_POLL_INTERVAL,
+    );
+
     // ── subscribe to the desired topics for this session ─────────────────────
     if !desired_topics.is_empty() {
         {
@@ -157,6 +186,13 @@ async fn connect_and_run<C: ProtocolClient>(
     // ── main loop ─────────────────────────────────────────────────────────────
     loop {
         tokio::select! {
+            _ = stats_tick.tick(), if stats_enabled => {
+                let response = client
+                    .request(Request::GetTopicStats)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                state.lock().unwrap().handle_response(response);
+            }
             data_result = client.recv_data() => {
                 match data_result {
                     Ok((topic, frame)) => {
@@ -270,6 +306,8 @@ mod tests {
         request_responses: Arc<Mutex<VecDeque<Response>>>,
         fail_subscribe_call: Option<usize>,
         fail_unsubscribe_call: Option<usize>,
+        /// Behave like a v1.0.0 agent, which drops the connection on `GetTopicStats`.
+        legacy_agent: bool,
     }
 
     impl FakeClient {
@@ -286,7 +324,13 @@ mod tests {
                 request_responses: Arc::new(Mutex::new(request_responses)),
                 fail_subscribe_call: None,
                 fail_unsubscribe_call: None,
+                legacy_agent: false,
             }
+        }
+
+        fn legacy_agent(mut self) -> Self {
+            self.legacy_agent = true;
+            self
         }
 
         fn with_failed_subscribe_call(mut self, call: usize) -> Self {
@@ -338,6 +382,11 @@ mod tests {
                         .collect(),
                 }),
                 Request::Unsubscribe { topics } => Ok(Response::Unsubscribed { topics }),
+                Request::GetTopicStats if self.legacy_agent => Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "closed",
+                ))),
+                Request::GetTopicStats => Ok(Response::TopicStats(vec![])),
                 _ => self
                     .request_responses
                     .lock()
@@ -457,6 +506,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn legacy_agent_is_probed_for_stats_only_once() {
+        let state = Arc::new(Mutex::new(AppState::default()));
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        drop(cmd_tx);
+
+        let first = FakeClient::new(sample_topics()).legacy_agent();
+        assert!(connect_and_run(first, &state, &mut cmd_rx).await.is_err());
+        assert_eq!(state.lock().unwrap().agent_stats_supported, Some(false));
+
+        let reconnect = FakeClient::new(sample_topics()).legacy_agent();
+        connect_and_run(reconnect.clone(), &state, &mut cmd_rx)
+            .await
+            .expect("reconnect to a legacy agent should not probe again");
+        assert!(!reconnect.request_calls().contains(&Request::GetTopicStats));
+    }
+
+    #[tokio::test]
     async fn manual_unsubscribe_uses_protocol_helper() {
         let state = Arc::new(Mutex::new(AppState::default()));
         let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
@@ -572,6 +638,7 @@ mod tests {
                 Request::ListTopics,
                 Request::ListNodes,
                 Request::ListPoses,
+                Request::GetTopicStats,
                 Request::ListNodes,
             ]
         );
@@ -684,6 +751,7 @@ mod tests {
                 Request::ListTopics,
                 Request::ListNodes,
                 Request::ListPoses,
+                Request::GetTopicStats,
                 Request::ListNodes,
             ]
         );

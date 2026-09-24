@@ -7,6 +7,19 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Added
+
+- The agent now measures rate, bandwidth and header-stamp latency for every
+  bridged topic, before any per-client frame dropping, and serves them through
+  a new `GetTopicStats` request. The TUI polls it every second and shows the
+  values in the topic list and detail pane, with a 60-second rate sparkline.
+  Previously the TUI estimated Hz from received frames, which reads too low
+  when frames are dropped and too high when message timing is jittery.
+- Agents now reply `Error` to a request they can't decode, such as a variant
+  from a newer client, instead of closing the connection. The TUI treats an
+  older agent that does close the connection as not supporting stats, and
+  stops sending it `GetTopicStats`.
+
 ### Fixed
 
 - QUIC clients no longer lose a topic's stream for the rest of the session when

@@ -5,7 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use talos_common::config::AgentConfig;
 use talos_common::error::Error;
-use talos_common::protocol::codec::{BincodeCodec, MAX_FRAME_SIZE};
+use talos_common::protocol::codec::{BincodeCodec, MAX_FRAME_SIZE, frame_codec, from_slice};
 use talos_common::protocol::messages::{Request, Response};
 use talos_common::protocol::types::{StreamHeader, TopicFrame, TopicSub};
 use tokio::sync::mpsc;
@@ -14,7 +14,7 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{error, info, warn};
 
 use super::RouterHandle;
-use super::requests::handle_control_request;
+use super::requests::{handle_control_request, unsupported_request};
 use crate::{GraphHandle, JointPublisher};
 
 pub async fn run_quic(
@@ -77,7 +77,7 @@ pub async fn handle_quic_client(
     };
 
     let mut control_tx = FramedWrite::new(send, BincodeCodec::<Response>::new());
-    let mut control_rx = FramedRead::new(recv, BincodeCodec::<Request>::new());
+    let mut control_rx = FramedRead::new(recv, frame_codec());
 
     // One writer task per topic stream, so a stream stalled by QUIC flow
     // control only drops its own frames instead of blocking this loop.
@@ -86,8 +86,12 @@ pub async fn handle_quic_client(
 
     loop {
         tokio::select! {
-            req = control_rx.next() => {
+            frame = control_rx.next() => {
+                let req = frame.map(|f| f.map_err(Error::Io).and_then(|f| from_slice::<Request>(&f)));
                 match req {
+                    Some(Err(e @ Error::Decode(_))) => {
+                        let _ = control_tx.send(unsupported_request(e)).await;
+                    }
                     Some(Ok(Request::Subscribe { topics })) => {
                         let topic_subs: Vec<TopicSub> = topics.iter()
                             .filter_map(|t| {
@@ -133,7 +137,7 @@ pub async fn handle_quic_client(
                     }
                     Some(Ok(other)) => {
                         let response =
-                            handle_control_request(&other, &config, &joint_publisher, &graph_handle).await;
+                            handle_control_request(&other, &config, &joint_publisher, &graph_handle, &router).await;
                         let _ = control_tx.send(response).await;
                     }
                     Some(Err(e)) => {

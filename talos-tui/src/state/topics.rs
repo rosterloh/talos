@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::time::Instant;
+use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
 
 use talos_common::protocol::messages::Request;
-use talos_common::protocol::types::{DynValue, TopicInfo, TopicSub};
+use talos_common::protocol::types::{DynValue, TopicInfo, TopicStats, TopicSub};
 
 use super::AppState;
 
@@ -15,9 +15,34 @@ pub struct TopicData {
     pub hz: f64,
     pub subscription: TopicSubscriptionState,
     pub subscription_error: Option<String>,
+    /// Latest agent-side stats and when they arrived.
+    pub stats: Option<(TopicStats, Instant)>,
+    /// Agent-reported rate, one sample per stats poll, oldest first.
+    pub rate_history: VecDeque<u64>,
 }
 
+/// Rate samples kept for the sparkline (one per second).
+pub const RATE_HISTORY_LEN: usize = 60;
+
+/// Agent stats older than this (e.g. after a disconnect) are ignored.
+const STATS_STALE_AFTER: Duration = Duration::from_secs(3);
+
 impl TopicData {
+    /// Agent-side stats if they are current.
+    pub fn current_stats(&self, now: Instant) -> Option<&TopicStats> {
+        self.stats
+            .as_ref()
+            .filter(|(_, at)| now.duration_since(*at) < STATS_STALE_AFTER)
+            .map(|(stats, _)| stats)
+    }
+
+    /// Rate to display: the agent's measurement when available (it sees every
+    /// message), otherwise the estimate from frames this client received.
+    pub fn display_hz(&self, now: Instant) -> f64 {
+        self.current_stats(now)
+            .map_or_else(|| self.hz_at(now), |s| s.rate_hz)
+    }
+
     /// The Hz estimate only updates on arrival, so treat it as zero once the
     /// topic has been quiet for two expected periods (at least one second).
     pub fn hz_at(&self, now: Instant) -> f64 {
@@ -43,6 +68,8 @@ impl TopicData {
             hz: 0.0,
             subscription: TopicSubscriptionState::Unsubscribed,
             subscription_error: None,
+            stats: None,
+            rate_history: VecDeque::new(),
         }
     }
 }
@@ -77,6 +104,19 @@ pub(crate) struct PendingTopicSubscriptionToggle {
 }
 
 impl AppState {
+    pub(crate) fn handle_topic_stats(&mut self, stats: Vec<TopicStats>) {
+        let now = Instant::now();
+        for stat in stats {
+            if let Some(topic) = self.topics.get_mut(&stat.topic) {
+                if topic.rate_history.len() == RATE_HISTORY_LEN {
+                    topic.rate_history.pop_front();
+                }
+                topic.rate_history.push_back(stat.rate_hz.round() as u64);
+                topic.stats = Some((stat, now));
+            }
+        }
+    }
+
     pub(crate) fn handle_topic_list(&mut self, topics: Vec<TopicInfo>) {
         let auto_subscribe_all = !self.subscriptions_customized;
         let mut current_topics = std::mem::take(&mut self.topics);
@@ -163,6 +203,8 @@ impl AppState {
                     TopicSubscriptionState::Unsubscribed
                 },
                 subscription_error: None,
+                stats: None,
+                rate_history: VecDeque::new(),
             });
 
         // Update Hz estimate
@@ -231,6 +273,8 @@ impl AppState {
                     hz: 0.0,
                     subscription: TopicSubscriptionState::Unsubscribed,
                     subscription_error: None,
+                    stats: None,
+                    rate_history: VecDeque::new(),
                 });
             entry.info.type_name = sub.type_name;
             entry.subscription = TopicSubscriptionState::Subscribed;
@@ -416,6 +460,29 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_stats_take_precedence_until_stale() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![TopicInfo {
+            name: "/scan".into(),
+            type_name: "sensor_msgs/msg/LaserScan".into(),
+            publisher_count: 1,
+            subscriber_count: 0,
+        }]));
+        state.handle_topic_stats(vec![TopicStats {
+            topic: "/scan".into(),
+            rate_hz: 9.6,
+            bandwidth_bps: 0.0,
+            latency_ms: None,
+        }]);
+        let topic = &state.topics["/scan"];
+        let (_, at) = topic.stats.as_ref().unwrap();
+        assert_eq!(topic.display_hz(*at), 9.6);
+        assert_eq!(topic.rate_history, [10]);
+        // After a disconnect the stats stop updating and fall back to the local estimate.
+        assert_eq!(topic.display_hz(*at + Duration::from_secs(5)), 0.0);
+    }
 
     #[test]
     fn hz_goes_to_zero_when_topic_stops() {

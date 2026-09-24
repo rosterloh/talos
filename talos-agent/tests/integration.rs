@@ -69,7 +69,7 @@ fn inject_value(router: &RouterHandle, topic: &str, data: DynValue) {
         data,
     };
     // Use try_lock to avoid blocking in test helpers
-    if let Ok(r) = router.try_lock() {
+    if let Ok(mut r) = router.try_lock() {
         r.route(&response);
     }
 }
@@ -759,4 +759,69 @@ async fn quic_stalled_topic_stream_does_not_block_control() {
         .await
         .expect("control stream blocked behind a stalled topic stream");
     assert!(matches!(reply, Some(Ok(Response::PoseList(_)))));
+}
+
+/// A request variant this agent doesn't know (sent by a newer client) gets an
+/// error reply, and the connection stays usable.
+#[tokio::test]
+async fn uds_unknown_request_gets_error_and_keeps_connection() {
+    use futures_util::{SinkExt, StreamExt};
+    use talos_common::protocol::codec::{BincodeCodec, frame_codec};
+    use tokio::net::UnixStream;
+    use tokio_util::codec::{FramedRead, FramedWrite};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir
+        .path()
+        .join("unknown.sock")
+        .to_string_lossy()
+        .into_owned();
+    let _router = spawn_uds_server(test_config_uds(&path)).await;
+
+    let (r, w) = UnixStream::connect(&path).await.unwrap().into_split();
+    let mut raw_tx = FramedWrite::new(w, frame_codec());
+    let mut rx = FramedRead::new(r, BincodeCodec::<Response>::new());
+
+    // Variant index 999 as bincode's little-endian u32 tag.
+    raw_tx
+        .send(bytes::Bytes::from_static(&[0xe7, 0x03, 0, 0]))
+        .await
+        .unwrap();
+    assert!(matches!(rx.next().await, Some(Ok(Response::Error(_)))));
+
+    let known = talos_common::protocol::codec::to_vec(&Request::ListPoses).unwrap();
+    raw_tx.send(bytes::Bytes::from(known)).await.unwrap();
+    assert!(matches!(rx.next().await, Some(Ok(Response::PoseList(_)))));
+}
+
+#[tokio::test]
+async fn uds_get_topic_stats_reports_agent_side_rate() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("stats.sock").to_string_lossy().into_owned();
+    let router = spawn_uds_server(test_config_uds(&path)).await;
+
+    // No client subscribes: stats count every bridged message regardless.
+    let start = std::time::Instant::now();
+    router.lock().await.tick_stats(start);
+    for _ in 0..5 {
+        inject(&router, "/odom");
+    }
+    router
+        .lock()
+        .await
+        .tick_stats(start + Duration::from_secs(1));
+
+    let mut client = UdsProtocolClient::connect(&path).await.unwrap();
+    match client.request(Request::GetTopicStats).await.unwrap() {
+        Response::TopicStats(stats) => {
+            assert_eq!(stats.len(), 1);
+            assert_eq!(stats[0].topic, "/odom");
+            assert!(
+                (stats[0].rate_hz - 5.0).abs() < 1e-6,
+                "{}",
+                stats[0].rate_hz
+            );
+        }
+        other => panic!("unexpected response: {other:?}"),
+    }
 }

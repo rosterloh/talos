@@ -2,7 +2,7 @@ use super::messages::{Request, Response};
 use super::params::{ParamInfo, ParamValue};
 use super::types::{
     DynValue, JointInfo, JointLimits, JointType, NodeInfo, PoseInfo, StreamHeader, Timestamp,
-    TopicFrame, TopicInfo, TopicSub,
+    TopicFrame, TopicInfo, TopicStats, TopicSub,
 };
 
 fn round_trip_request(req: &Request) {
@@ -330,4 +330,38 @@ fn response_parameter_set() {
         successful: true,
         reason: String::new(),
     });
+}
+
+#[test]
+fn topic_stats_round_trip() {
+    round_trip_request(&Request::GetTopicStats);
+    round_trip_response(&Response::TopicStats(vec![TopicStats {
+        topic: "/scan".into(),
+        rate_hz: 10.0,
+        bandwidth_bps: 2048.0,
+        latency_ms: Some(3.5),
+    }]));
+}
+
+/// Released agents and clients decode by variant index; appending variants is
+/// the only compatible change.
+#[test]
+fn variant_indices_are_stable() {
+    let index = |bytes: Vec<u8>| u32::from_le_bytes(bytes[..4].try_into().unwrap());
+    assert_eq!(
+        index(super::codec::to_vec(&Request::ListTopics).unwrap()),
+        0
+    );
+    assert_eq!(
+        index(super::codec::to_vec(&Request::GetTopicStats).unwrap()),
+        10
+    );
+    assert_eq!(
+        index(super::codec::to_vec(&Response::Error(String::new())).unwrap()),
+        9
+    );
+    assert_eq!(
+        index(super::codec::to_vec(&Response::TopicStats(vec![])).unwrap()),
+        10
+    );
 }

@@ -44,8 +44,17 @@ pub(super) async fn handle_request(
                 topics: topics.clone(),
             })
         }
-        other => Some(handle_control_request(other, config, joint_publisher, graph_handle).await),
+        other => {
+            Some(handle_control_request(other, config, joint_publisher, graph_handle, router).await)
+        }
     }
+}
+
+/// Reply to a request frame this agent can't decode, typically a variant
+/// added by a newer client, instead of dropping the connection.
+pub(super) fn unsupported_request(e: talos_common::error::Error) -> Response {
+    tracing::warn!("unsupported request: {e}");
+    Response::Error(format!("unsupported request (agent too old?): {e}"))
 }
 
 pub(super) async fn handle_control_request(
@@ -53,8 +62,10 @@ pub(super) async fn handle_control_request(
     config: &AgentConfig,
     joint_publisher: &JointPublisher,
     graph_handle: &GraphHandle,
+    router: &RouterHandle,
 ) -> Response {
     match request {
+        Request::GetTopicStats => Response::TopicStats(router.lock().await.topic_stats()),
         Request::ListTopics => list_topics(config, graph_handle).await,
         Request::ListNodes => list_nodes(graph_handle).await,
         Request::ListPoses => Response::PoseList(configured_poses(config)),

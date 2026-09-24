@@ -101,6 +101,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     };
 
+    // Close a topic-stats window every second.
+    let _stats_handle = {
+        let router = Arc::clone(&router);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+            loop {
+                interval.tick().await;
+                router.lock().await.tick_stats(std::time::Instant::now());
+            }
+        })
+    };
+
     let bridge_handle = {
         let config = Arc::clone(&config);
         let joint_pub = Arc::clone(&joint_publisher);

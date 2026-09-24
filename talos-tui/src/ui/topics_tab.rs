@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Sparkline};
 
 use crate::state::{AppState, Pane, TopicSubscriptionState};
 use talos_common::protocol::types::DynValue;
@@ -28,7 +28,7 @@ fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
                 .topics
                 .get(name)
                 .map(|t| {
-                    let hz = t.hz_at(now);
+                    let hz = t.display_hz(now);
                     if hz > 0.5 {
                         format!("{hz:>5.0}Hz")
                     } else if t.msg_count > 0 {
@@ -104,7 +104,8 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
             .rsplit('/')
             .next()
             .unwrap_or(&topic.info.type_name);
-        let hz = topic.hz_at(std::time::Instant::now());
+        let now = std::time::Instant::now();
+        let hz = topic.display_hz(now);
         let hz_str = if hz > 0.5 {
             format!(" @ {hz:.0}Hz")
         } else {
@@ -116,6 +117,19 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
             format!("{type_short}{hz_str}"),
             Style::default().fg(Color::DarkGray),
         )])];
+        if let Some(stats) = topic.current_stats(now) {
+            let latency = stats
+                .latency_ms
+                .map_or_else(|| "-".to_string(), |ms| format!("{ms:.1} ms"));
+            lines.push(Line::from(vec![
+                Span::styled("Agent: ", Style::default().fg(Color::DarkGray)),
+                Span::raw(format!(
+                    "{:.1} Hz  {}  latency {latency}",
+                    stats.rate_hz,
+                    format_bandwidth(stats.bandwidth_bps)
+                )),
+            ]));
+        }
         let (_, subscription_style) = subscription_badge(topic);
         lines.push(Line::from(vec![
             Span::styled("Subscription: ", Style::default().fg(Color::DarkGray)),
@@ -153,7 +167,37 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
             .border_style(border_style),
     );
 
-    f.render_widget(paragraph, area);
+    let history: Vec<u64> = selected_topic
+        .map(|t| t.rate_history.iter().copied().collect())
+        .unwrap_or_default();
+    if history.len() < 2 {
+        f.render_widget(paragraph, area);
+        return;
+    }
+
+    let [detail_area, spark_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(5)]).areas(area);
+    f.render_widget(paragraph, detail_area);
+    let sparkline = Sparkline::default()
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!(" rate, last {}s ", history.len()))
+                .border_style(border_style),
+        )
+        .data(&history)
+        .style(Style::default().fg(Color::Cyan));
+    f.render_widget(sparkline, spark_area);
+}
+
+fn format_bandwidth(bytes_per_sec: f64) -> String {
+    if bytes_per_sec >= 1024.0 * 1024.0 {
+        format!("{:.1} MB/s", bytes_per_sec / (1024.0 * 1024.0))
+    } else if bytes_per_sec >= 1024.0 {
+        format!("{:.1} KB/s", bytes_per_sec / 1024.0)
+    } else {
+        format!("{bytes_per_sec:.0} B/s")
+    }
 }
 
 fn render_dynvalue(
