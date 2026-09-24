@@ -4,7 +4,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
-use crate::state::{AppState, Pane};
+use talos_common::protocol::types::logger_level_name;
+
+use crate::state::{AppState, Pane, node_fqn};
 
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
     let chunks = Layout::default()
@@ -73,6 +75,7 @@ fn draw_node_detail(f: &mut Frame, state: &AppState, area: Rect) {
                 Span::styled("Namespace: ", Style::default().fg(Color::DarkGray)),
                 Span::raw(&node.namespace),
             ]),
+            logger_line(state, &node_fqn(node)),
             Line::from(""),
         ];
 
@@ -151,4 +154,26 @@ fn draw_node_detail(f: &mut Frame, state: &AppState, area: Rect) {
     );
 
     f.render_widget(paragraph, area);
+}
+
+fn logger_line(state: &AppState, fqn: &str) -> Line<'static> {
+    let label = Span::styled("Logger:    ", Style::default().fg(Color::DarkGray));
+    if state.logger_node.as_deref() != Some(fqn) {
+        return Line::from(vec![
+            label,
+            Span::styled("press l to load", Style::default().fg(Color::DarkGray)),
+        ]);
+    }
+    let level = match state.logger_level {
+        Some(level) => logger_level_name(level).map_or_else(|| level.to_string(), str::to_string),
+        None => "loading...".to_string(),
+    };
+    let mut spans = vec![label, Span::raw(level)];
+    if let Some(status) = &state.logger_status {
+        spans.push(Span::styled(
+            format!("  ({status})"),
+            Style::default().fg(Color::Red),
+        ));
+    }
+    Line::from(spans)
 }

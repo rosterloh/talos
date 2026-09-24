@@ -61,6 +61,21 @@ pub fn draw(f: &mut Frame, area: Rect) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
+            "Nodes Tab",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  l        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Load selected node's logger level"),
+        ]),
+        Line::from(vec![
+            Span::styled("  L        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Cycle selected node's logger level"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
             "Log Tab",
             Style::default()
                 .fg(Color::Cyan)

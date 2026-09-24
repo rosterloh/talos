@@ -25,6 +25,13 @@ those entries into the versioned section when a release is created.
   filter. The active filter is shown in the pane title (in the filter bar on
   the Log tab). The parameter value
   editor uses the same text input, so it gains cursor movement and `Ctrl-U`.
+- Show and set a node's logger level through its `get_logger_levels` /
+  `set_logger_levels` services, with new `GetLoggerLevel` and
+  `SetLoggerLevel` agent requests. Use `talos-cli log-level <node> [level]`,
+  or `l` (load) and `L` (cycle level) on the TUI Nodes tab. The target node
+  must enable its logger services, e.g. rclcpp
+  `NodeOptions().enable_logger_service(true)`.
+
 - The topic detail pane in the TUI now lists each publisher and subscriber on
   the selected topic, with its reliability, durability, history and deadline,
   from a new `GetTopicEndpoints` agent request. Subscribers that can never

@@ -87,6 +87,11 @@ pub struct AppState {
     pub nodes: Vec<NodeInfo>,
     pub node_selected: usize,
     pub node_filter: String,
+    /// Node that `logger_level` and `logger_status` belong to.
+    pub logger_node: Option<String>,
+    pub logger_level: Option<u32>,
+    /// Outcome of the last logger-level set, or an agent error.
+    pub logger_status: Option<String>,
 
     // Log tab
     pub log_entries: VecDeque<LogEntry>,
@@ -150,6 +155,9 @@ impl Default for AppState {
             nodes: Vec::new(),
             node_selected: 0,
             node_filter: String::new(),
+            logger_node: None,
+            logger_level: None,
+            logger_status: None,
             log_entries: VecDeque::new(),
             log_max_entries: 10_000,
             log_selected: 0,
@@ -187,6 +195,15 @@ impl AppState {
         match response {
             Response::Ok(_) => {}
             Response::Error(e) => self.joint_status = Some(format!("error: {e}")),
+            other => self.handle_response(other),
+        }
+    }
+
+    /// Reply to `GetLoggerLevel` / `SetLoggerLevel`. Errors go to
+    /// `logger_status` rather than a pending parameter request.
+    pub fn handle_logger_response(&mut self, response: Response) {
+        match response {
+            Response::Error(e) => self.logger_status = Some(format!("error: {e}")),
             other => self.handle_response(other),
         }
     }
@@ -269,6 +286,15 @@ impl AppState {
                     publishers,
                     subscribers,
                 });
+            }
+            Response::LoggerLevel { node, level, .. } => {
+                self.logger_node = Some(node);
+                self.logger_level = Some(level);
+            }
+            Response::LoggerLevelSet {
+                successful, reason, ..
+            } => {
+                self.logger_status = (!successful).then(|| format!("rejected: {reason}"));
             }
             Response::Error(e) => {
                 if std::mem::take(&mut self.param_awaiting_reply) {

@@ -276,11 +276,17 @@ async fn connect_and_run<C: ProtocolClient>(
                                     other,
                                     Request::SetJointPosition { .. } | Request::ExecutePose { .. }
                                 );
+                                let logger_command = matches!(
+                                    other,
+                                    Request::GetLoggerLevel { .. } | Request::SetLoggerLevel { .. }
+                                );
                                 match client.request(other).await {
                                 Ok(response) => {
                                 let mut s = state.lock().unwrap();
                                 if joint_command {
                                     s.handle_joint_command_response(response);
+                                } else if logger_command {
+                                    s.handle_logger_response(response);
                                 } else {
                                     s.handle_response(response);
                                 }

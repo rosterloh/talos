@@ -44,6 +44,17 @@ pub enum Request {
     GetTopicEndpoints {
         topic: String,
     },
+    /// Level of a node's logger; an empty `logger` means the node's own logger.
+    GetLoggerLevel {
+        node: String,
+        logger: String,
+    },
+    /// Set the level of a node's logger; an empty `logger` means the node's own logger.
+    SetLoggerLevel {
+        node: String,
+        logger: String,
+        level: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -84,5 +95,18 @@ pub enum Response {
         topic: String,
         publishers: Vec<EndpointInfo>,
         subscribers: Vec<EndpointInfo>,
+    },
+    /// Reply to `GetLoggerLevel`, with the resolved logger name.
+    LoggerLevel {
+        node: String,
+        logger: String,
+        level: u32,
+    },
+    /// Reply to `SetLoggerLevel`.
+    LoggerLevelSet {
+        node: String,
+        logger: String,
+        successful: bool,
+        reason: String,
     },
 }

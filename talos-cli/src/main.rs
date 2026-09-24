@@ -76,6 +76,16 @@ enum Command {
         /// New value, e.g. true, 42, 3.14, hello, "[1, 2, 3]"
         value: String,
     },
+    /// Show a node's logger level, or set it when a level is given
+    LogLevel {
+        /// Fully-qualified node name, e.g. /talos_agent
+        node: String,
+        /// New level: unset, debug, info, warn, error or fatal
+        level: Option<String>,
+        /// Logger name (default: the node's own logger)
+        #[arg(long)]
+        logger: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -132,6 +142,11 @@ async fn run_with_client<C: ProtocolClient>(
         Command::SetParam { node, name, value } => {
             commands::parameters::set(&mut client, node, name, value).await?
         }
+        Command::LogLevel {
+            node,
+            level,
+            logger,
+        } => commands::log_level::run(&mut client, node, level, logger.unwrap_or_default()).await?,
     }
 
     Ok(())

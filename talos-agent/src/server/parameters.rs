@@ -165,7 +165,7 @@ async fn fetch_parameter_values(
 
 /// Normalise a node name to a fully-qualified, absolute name (leading `/`,
 /// no trailing `/`). Returns `None` for an empty or root-only name.
-fn normalize_node_name(node: &str) -> Option<String> {
+pub(super) fn normalize_node_name(node: &str) -> Option<String> {
     let trimmed = node.trim().trim_end_matches('/');
     if trimmed.is_empty() {
         return None;
@@ -179,7 +179,9 @@ fn normalize_node_name(node: &str) -> Option<String> {
 
 /// Wait until a service server is available for `client`, bounded by
 /// [`PARAM_SERVICE_WAIT`].
-async fn wait_for_service<T: rosidl_runtime_rs::Service>(client: &rclrs::Client<T>) -> bool {
+pub(super) async fn wait_for_service<T: rosidl_runtime_rs::Service>(
+    client: &rclrs::Client<T>,
+) -> bool {
     if client.service_is_ready().unwrap_or(false) {
         return true;
     }
@@ -192,16 +194,16 @@ async fn wait_for_service<T: rosidl_runtime_rs::Service>(client: &rclrs::Client<
 
 /// Send a request on `client` and await its response, bounded by
 /// [`PARAM_CALL_TIMEOUT`].
-async fn call_service<T: rosidl_runtime_rs::Service>(
+pub(super) async fn call_service<T: rosidl_runtime_rs::Service>(
     client: &rclrs::Client<T>,
     request: T::Request,
 ) -> Result<T::Response, String> {
     let promise: rclrs::Promise<T::Response> = client
         .call(request)
-        .map_err(|e| format!("parameter service call failed: {e}"))?;
+        .map_err(|e| format!("service call failed: {e}"))?;
     match tokio::time::timeout(PARAM_CALL_TIMEOUT, promise).await {
         Ok(Ok(resp)) => Ok(resp),
-        Ok(Err(_)) => Err("parameter service response was dropped".into()),
-        Err(_) => Err("parameter service call timed out".into()),
+        Ok(Err(_)) => Err("service response was dropped".into()),
+        Err(_) => Err("service call timed out".into()),
     }
 }

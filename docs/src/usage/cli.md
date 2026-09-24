@@ -102,6 +102,19 @@ Talos' internal tagged form:
 - `uint8[]`/`byte[]` fields and byte-array parameters become base64 strings;
 - NaN and infinite floats become `null`, as JSON has no representation for
   them, and so do unset parameters and a missing `latency_ms`.
+## Logger Levels
+
+Show a node's logger level, or set it by passing a level (`unset`, `debug`,
+`info`, `warn`, `error` or `fatal`):
+
+```bash
+talos-cli log-level /talos_agent
+talos-cli log-level /talos_agent debug
+```
+
+`--logger <name>` targets another logger, such as `rclcpp`, instead of the
+node's own. See [Logger Levels](../features/node-introspection.md#logger-levels)
+for what the node must enable.
 
 ## Socket Selection
 

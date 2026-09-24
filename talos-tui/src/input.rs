@@ -5,10 +5,10 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent};
 use talos_common::protocol::messages::Request;
-use talos_common::protocol::types::DynValue;
+use talos_common::protocol::types::{DynValue, LOGGER_LEVELS};
 use tokio::sync::mpsc;
 
-use crate::state::{AppState, JointFocus, LogLevel, Pane, Tab};
+use crate::state::{AppState, JointFocus, LogLevel, Pane, Tab, node_fqn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppAction {
@@ -116,6 +116,14 @@ pub fn handle_key_event(
             cycle_log_severity_filter(state);
             AppAction::Continue
         }
+        KeyCode::Char('l') if state.active_tab == Tab::Nodes => {
+            load_logger_level(state, cmd_tx);
+            AppAction::Continue
+        }
+        KeyCode::Char('L') if state.active_tab == Tab::Nodes => {
+            cycle_logger_level(state, cmd_tx);
+            AppAction::Continue
+        }
         KeyCode::Char('s') if state.active_tab == Tab::Topics => {
             handle_topic_subscription_toggle(state, cmd_tx);
             AppAction::Continue
@@ -201,6 +209,51 @@ fn handle_topic_subscription_toggle(state: &mut AppState, cmd_tx: &mpsc::Unbound
     {
         state.revert_topic_subscription_toggle(toggle);
     }
+}
+
+fn load_logger_level(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
+    let Some(node) = state
+        .filtered_nodes()
+        .get(state.node_selected)
+        .map(|n| node_fqn(n))
+    else {
+        return;
+    };
+    state.logger_node = Some(node.clone());
+    state.logger_level = None;
+    state.logger_status = None;
+    let _ = cmd_tx.send(Request::GetLoggerLevel {
+        node,
+        logger: String::new(),
+    });
+}
+
+/// Set the selected node's logger to the level after its current one
+/// (DEBUG → INFO → … → FATAL → DEBUG; unknown or UNSET starts at DEBUG).
+fn cycle_logger_level(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
+    let Some(node) = state
+        .filtered_nodes()
+        .get(state.node_selected)
+        .map(|n| node_fqn(n))
+    else {
+        return;
+    };
+    let current = if state.logger_node.as_deref() == Some(node.as_str()) {
+        state.logger_level.unwrap_or(0)
+    } else {
+        0
+    };
+    let next = LOGGER_LEVELS[1..]
+        .iter()
+        .map(|(level, _)| *level)
+        .find(|level| *level > current)
+        .unwrap_or(LOGGER_LEVELS[1].0);
+    let _ = cmd_tx.send(Request::SetLoggerLevel {
+        node: node.clone(),
+        logger: String::new(),
+        level: next,
+    });
+    load_logger_level(state, cmd_tx);
 }
 
 fn handle_joint_input_submit(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
@@ -442,6 +495,69 @@ mod tests {
             Some("error: joint publisher not ready")
         );
         assert_eq!(state.param_status, None);
+    }
+
+    #[test]
+    fn logger_level_cycles_and_wraps() {
+        use talos_common::protocol::types::NodeInfo;
+
+        let mut state = AppState {
+            active_tab: Tab::Nodes,
+            nodes: vec![NodeInfo {
+                name: "foo".into(),
+                namespace: "/ns".into(),
+                publishers: Vec::new(),
+                subscribers: Vec::new(),
+                services: Vec::new(),
+            }],
+            ..Default::default()
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let shift_l = KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT);
+
+        for (current, expected) in [(None, 10), (Some(10), 20), (Some(50), 10)] {
+            state.logger_node = Some("/ns/foo".into());
+            state.logger_level = current;
+            handle_key_event(&mut state, &tx, shift_l);
+            assert!(matches!(
+                rx.try_recv(),
+                Ok(Request::SetLoggerLevel { node, level, .. }) if node == "/ns/foo" && level == expected
+            ));
+            assert!(matches!(rx.try_recv(), Ok(Request::GetLoggerLevel { .. })));
+        }
+
+        state.handle_logger_response(Response::Error("no logger services".into()));
+        assert_eq!(
+            state.logger_status.as_deref(),
+            Some("error: no logger services")
+        );
+        assert_eq!(state.param_status, None);
+    }
+
+    #[test]
+    fn logger_level_targets_selected_row_of_filtered_nodes() {
+        use talos_common::protocol::types::NodeInfo;
+
+        let node = |name: &str| NodeInfo {
+            name: name.into(),
+            namespace: "/".into(),
+            publishers: Vec::new(),
+            subscribers: Vec::new(),
+            services: Vec::new(),
+        };
+        let mut state = AppState {
+            active_tab: Tab::Nodes,
+            nodes: vec![node("lidar"), node("cam")],
+            node_filter: "cam".into(),
+            ..Default::default()
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        handle_key_event(&mut state, &tx, KeyEvent::from(KeyCode::Char('l')));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Request::GetLoggerLevel { node, .. }) if node == "/cam"
+        ));
     }
 
     fn topic(name: &str, type_name: &str) -> TopicInfo {

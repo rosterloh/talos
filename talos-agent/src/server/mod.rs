@@ -6,6 +6,7 @@ use crate::router::TopicRouter;
 
 mod control;
 mod graph;
+mod logger_levels;
 mod parameters;
 #[cfg(feature = "quic")]
 mod quic;
