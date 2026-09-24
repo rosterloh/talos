@@ -113,11 +113,6 @@ pub struct AppState {
     pub param_status: Option<String>,
     /// A load or set was sent and its first reply should update `param_status`.
     pub param_awaiting_reply: bool,
-
-    /// Whether the agent answers `GetTopicStats`: `None` until probed,
-    /// `Some(false)` for agents older than the request. Kept across
-    /// reconnects so an old agent is only probed once.
-    pub agent_stats_supported: Option<bool>,
 }
 
 impl Default for AppState {
@@ -160,7 +155,6 @@ impl Default for AppState {
             param_input: String::new(),
             param_status: None,
             param_awaiting_reply: false,
-            agent_stats_supported: None,
         }
     }
 }

@@ -50,13 +50,6 @@ pub(super) async fn handle_request(
     }
 }
 
-/// Reply to a request frame this agent can't decode, typically a variant
-/// added by a newer client, instead of dropping the connection.
-pub(super) fn unsupported_request(e: talos_common::error::Error) -> Response {
-    tracing::warn!("unsupported request: {e}");
-    Response::Error(format!("unsupported request (agent too old?): {e}"))
-}
-
 pub(super) async fn handle_control_request(
     request: &Request,
     config: &AgentConfig,

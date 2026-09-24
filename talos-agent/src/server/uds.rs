@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures_util::{SinkExt, StreamExt};
 use talos_common::config::AgentConfig;
 use talos_common::error::Error;
-use talos_common::protocol::codec::{BincodeCodec, frame_codec, from_slice};
+use talos_common::protocol::codec::BincodeCodec;
 use talos_common::protocol::messages::{Request, Response};
 use talos_common::transport::uds::UdsTransport;
 use talos_common::transport::{TransportConfig, TransportServer};
@@ -11,7 +11,7 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{error, info, warn};
 
 use super::RouterHandle;
-use super::requests::{handle_request, unsupported_request};
+use super::requests::handle_request;
 use crate::{GraphHandle, JointPublisher};
 
 /// Accept UDS connections and spawn a handler task for each client.
@@ -59,21 +59,16 @@ async fn handle_uds_connection(
 ) {
     let (client_id, mut data_rx) = router.lock().await.register();
 
-    let mut reader = FramedRead::new(conn.reader, frame_codec());
+    let mut reader = FramedRead::new(conn.reader, BincodeCodec::<Request>::new());
     let mut writer = FramedWrite::new(conn.writer, BincodeCodec::<Response>::new());
 
     loop {
         tokio::select! {
             req = reader.next() => {
                 match req {
-                    Some(Ok(frame)) => {
-                        let response = match from_slice::<Request>(&frame) {
-                            Ok(request) => {
-                                handle_request(&request, &config, &joint_publisher, &graph_handle, &router, client_id).await
-                            }
-                            Err(e) => Some(unsupported_request(e)),
-                        };
-                        if let Some(response) = response
+                    Some(Ok(request)) => {
+                        if let Some(response) =
+                            handle_request(&request, &config, &joint_publisher, &graph_handle, &router, client_id).await
                             && let Err(e) = writer.send(response).await
                         {
                             error!("failed to send response: {e}");

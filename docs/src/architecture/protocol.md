@@ -52,19 +52,6 @@ unidirectional streams for topic data. A topic stream starts with a
 `StreamHeader` containing the topic and type name, then carries `TopicFrame`
 values with timestamp and data.
 
-## Compatibility
-
-bincode encodes each enum variant by its index, so new `Request` and
-`Response` variants are only ever appended. A test in `protocol/tests.rs`
-enforces the existing indices.
-
-When an agent receives a request frame it can't decode, typically a variant
-added by a newer client, it replies with `Error` and keeps the connection
-open. Agents up to v1.0.0 instead close the connection. To cope with that,
-the TUI sends a single `GetTopicStats` after connecting. If the connection
-closes on it, the TUI stops sending `GetTopicStats` to that agent until it is
-restarted.
-
 ## DynValue
 
 `DynValue` is the generic representation clients receive for ROS 2 message

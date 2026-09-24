@@ -54,8 +54,7 @@ smooths the result with an exponential moving average. `GetTopicStats` returns:
 These numbers come from the agent rather than from frames a client receives.
 A client that falls behind has frames dropped by the agent, but the stats stay
 accurate. The TUI polls the stats every second and shows them in the topic list
-and detail pane, with a 60-second rate sparkline. With an agent older than
-`GetTopicStats`, the TUI estimates the rate from the frames it receives.
+and detail pane, with a 60-second rate sparkline.
 
 The TUI keeps the latest value for each topic and renders on a fixed tick loop.
 High-frequency topics are naturally deduplicated by display rate: the UI shows

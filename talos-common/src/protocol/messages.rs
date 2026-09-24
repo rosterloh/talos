@@ -3,9 +3,6 @@ use serde::{Deserialize, Serialize};
 use super::params::{ParamInfo, ParamValue};
 use super::types::{DynValue, NodeInfo, PoseInfo, Timestamp, TopicInfo, TopicStats, TopicSub};
 
-// New variants must go at the end of these enums: bincode encodes the variant
-// index, so reordering breaks compatibility with released agents and clients.
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Request {
     ListTopics,

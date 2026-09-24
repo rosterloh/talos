@@ -761,39 +761,6 @@ async fn quic_stalled_topic_stream_does_not_block_control() {
     assert!(matches!(reply, Some(Ok(Response::PoseList(_)))));
 }
 
-/// A request variant this agent doesn't know (sent by a newer client) gets an
-/// error reply, and the connection stays usable.
-#[tokio::test]
-async fn uds_unknown_request_gets_error_and_keeps_connection() {
-    use futures_util::{SinkExt, StreamExt};
-    use talos_common::protocol::codec::{BincodeCodec, frame_codec};
-    use tokio::net::UnixStream;
-    use tokio_util::codec::{FramedRead, FramedWrite};
-
-    let dir = TempDir::new().unwrap();
-    let path = dir
-        .path()
-        .join("unknown.sock")
-        .to_string_lossy()
-        .into_owned();
-    let _router = spawn_uds_server(test_config_uds(&path)).await;
-
-    let (r, w) = UnixStream::connect(&path).await.unwrap().into_split();
-    let mut raw_tx = FramedWrite::new(w, frame_codec());
-    let mut rx = FramedRead::new(r, BincodeCodec::<Response>::new());
-
-    // Variant index 999 as bincode's little-endian u32 tag.
-    raw_tx
-        .send(bytes::Bytes::from_static(&[0xe7, 0x03, 0, 0]))
-        .await
-        .unwrap();
-    assert!(matches!(rx.next().await, Some(Ok(Response::Error(_)))));
-
-    let known = talos_common::protocol::codec::to_vec(&Request::ListPoses).unwrap();
-    raw_tx.send(bytes::Bytes::from(known)).await.unwrap();
-    assert!(matches!(rx.next().await, Some(Ok(Response::PoseList(_)))));
-}
-
 #[tokio::test]
 async fn uds_get_topic_stats_reports_agent_side_rate() {
     let dir = TempDir::new().unwrap();

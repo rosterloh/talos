@@ -28,7 +28,7 @@ fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
                 .topics
                 .get(name)
                 .map(|t| {
-                    let hz = t.display_hz(now);
+                    let hz = t.current_stats(now).map_or(0.0, |s| s.rate_hz);
                     if hz > 0.5 {
                         format!("{hz:>5.0}Hz")
                     } else if t.msg_count > 0 {
@@ -105,7 +105,7 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
             .next()
             .unwrap_or(&topic.info.type_name);
         let now = std::time::Instant::now();
-        let hz = topic.display_hz(now);
+        let hz = topic.current_stats(now).map_or(0.0, |s| s.rate_hz);
         let hz_str = if hz > 0.5 {
             format!(" @ {hz:.0}Hz")
         } else {
