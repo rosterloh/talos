@@ -7,6 +7,8 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-24
+
 ### Added
 
 - Runtime dynamic-message fallback in `talos-agent`: topics whose message type
