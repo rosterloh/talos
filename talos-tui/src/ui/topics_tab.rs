@@ -20,8 +20,8 @@ pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
 fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
     let now = std::time::Instant::now();
     let items: Vec<ListItem> = state
-        .topic_names
-        .iter()
+        .filtered_topic_names()
+        .into_iter()
         .enumerate()
         .map(|(i, name)| {
             let hz_str = state
@@ -76,7 +76,7 @@ fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" TOPICS ")
+            .title(super::filter_title(" TOPICS ".into(), &state.topic_filter))
             .border_style(border_style),
     );
 
@@ -93,9 +93,8 @@ fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
     };
 
     let selected_topic = state
-        .topic_names
-        .get(state.topic_selected)
-        .and_then(|name| state.topics.get(name));
+        .selected_topic_name()
+        .and_then(|name| state.topics.get(&name));
 
     let (title, lines) = if let Some(topic) = selected_topic {
         let type_short = topic

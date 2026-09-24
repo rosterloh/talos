@@ -18,6 +18,13 @@ those entries into the versioned section when a release is created.
   bandwidth and latency of a topic once a second, or a JSON object per second
   with `--json`.
 
+- `/` in the TUI opens a filter prompt for the current list: topics, nodes,
+  parameters, or log messages (the Log search). Matching is a case-insensitive
+  substring and updates as you type; `←`/`→` move the cursor, `Ctrl-U` clears,
+  `Enter` applies (empty clears the filter) and `Esc` restores the previous
+  filter. The active filter is shown in the pane title (in the filter bar on
+  the Log tab). The parameter value
+  editor uses the same text input, so it gains cursor movement and `Ctrl-U`.
 - The topic detail pane in the TUI now lists each publisher and subscriber on
   the selected topic, with its reliability, durability, history and deadline,
   from a new `GetTopicEndpoints` agent request. Subscribers that can never

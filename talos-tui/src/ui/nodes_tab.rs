@@ -18,8 +18,8 @@ pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
 
 fn draw_node_list(f: &mut Frame, state: &AppState, area: Rect) {
     let items: Vec<ListItem> = state
-        .nodes
-        .iter()
+        .filtered_nodes()
+        .into_iter()
         .enumerate()
         .map(|(i, node)| {
             let marker = if i == state.node_selected {
@@ -50,7 +50,7 @@ fn draw_node_list(f: &mut Frame, state: &AppState, area: Rect) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" NODES ")
+            .title(super::filter_title(" NODES ".into(), &state.node_filter))
             .border_style(border_style),
     );
 
@@ -66,7 +66,7 @@ fn draw_node_detail(f: &mut Frame, state: &AppState, area: Rect) {
         Style::default()
     };
 
-    let (title, lines) = if let Some(node) = state.nodes.get(state.node_selected) {
+    let (title, lines) = if let Some(node) = state.filtered_nodes().get(state.node_selected) {
         let title = format!(" NODE: {} ", node.name);
         let mut lines = vec![
             Line::from(vec![

@@ -5,6 +5,7 @@ use talos_common::protocol::messages::Request;
 use talos_common::protocol::types::{DynValue, TopicInfo, TopicStats, TopicSub};
 
 use super::AppState;
+use super::filter::{clamp_selection, matches_filter};
 
 #[derive(Debug, Clone)]
 pub struct TopicData {
@@ -281,7 +282,7 @@ impl AppState {
     /// Optimistically updates desired subscription intent so a failed manual
     /// toggle is retried automatically after reconnect.
     pub fn toggle_selected_topic_subscription(&mut self) -> Option<Request> {
-        let topic = self.topic_names.get(self.topic_selected)?.clone();
+        let topic = self.selected_topic_name()?;
         self.subscriptions_customized = true;
 
         if self.desired_subscriptions.remove(&topic) {
@@ -301,7 +302,7 @@ impl AppState {
     pub(crate) fn prepare_selected_topic_subscription_toggle(
         &mut self,
     ) -> Option<PendingTopicSubscriptionToggle> {
-        let topic = self.topic_names.get(self.topic_selected)?.clone();
+        let topic = self.selected_topic_name()?;
         let previous_subscription = self
             .topics
             .get(&topic)
@@ -383,8 +384,18 @@ impl AppState {
         }
     }
 
-    fn selected_topic_name(&self) -> Option<String> {
-        self.topic_names.get(self.topic_selected).cloned()
+    pub fn filtered_topic_names(&self) -> Vec<&String> {
+        self.topic_names
+            .iter()
+            .filter(|name| matches_filter(name, &self.topic_filter))
+            .collect()
+    }
+
+    /// Selected topic; `topic_selected` indexes the filtered list.
+    pub(crate) fn selected_topic_name(&self) -> Option<String> {
+        self.filtered_topic_names()
+            .get(self.topic_selected)
+            .map(|name| name.to_string())
     }
 
     fn ensure_topic_name(&mut self, topic_name: &str) {
@@ -407,22 +418,18 @@ impl AppState {
     }
 
     fn restore_topic_selection(&mut self, selected_topic: Option<&str>) {
-        if self.topic_names.is_empty() {
-            self.topic_selected = 0;
-            return;
-        }
-
+        let visible = self.filtered_topic_names();
         if let Some(selected_topic) = selected_topic
-            && let Some(index) = self
-                .topic_names
+            && let Some(index) = visible
                 .iter()
-                .position(|topic_name| topic_name == selected_topic)
+                .position(|topic_name| *topic_name == selected_topic)
         {
             self.topic_selected = index;
             return;
         }
 
-        self.topic_selected = self.topic_selected.min(self.topic_names.len() - 1);
+        let len = visible.len();
+        clamp_selection(&mut self.topic_selected, len);
     }
 }
 

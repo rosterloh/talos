@@ -25,6 +25,18 @@ The TUI has five tabs:
 Use number keys `1` through `5` to switch tabs. `Tab` switches focus between
 panes. `r` refreshes the topic and node lists immediately. `q` quits.
 
+## Filtering
+
+Press `/` to filter the list on the current tab: topic names on Topics, node
+names (including namespace) on Nodes, parameter names on Params, and message
+text on Log. Matching is a case-insensitive substring and the list updates as
+you type. While the prompt is open every key goes to it: `←`/`→` move the
+cursor, `Backspace` deletes, `Ctrl-U` clears, `Enter` applies and `Esc`
+restores the previous filter. Applying an empty prompt clears the filter.
+
+The active filter is shown in the pane title (on the Log tab, in the filter
+bar), and the selection moves to stay inside the filtered list.
+
 ## Connection Behavior
 
 The TUI reconnects when the agent connection is lost. After connecting, it asks

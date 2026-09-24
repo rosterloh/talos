@@ -3,11 +3,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use talos_common::protocol::messages::Response;
 use talos_common::protocol::types::{EndpointInfo, NodeInfo, ParamInfo, PoseInfo};
 
+mod filter;
 mod joints;
 mod logs;
 mod params;
 mod topics;
 
+pub use filter::{FilterPrompt, TextInput};
 pub use joints::{JointData, JointFocus};
 pub use logs::{LogEntry, LogLevel};
 pub(crate) use params::{node_fqn, node_label};
@@ -67,6 +69,8 @@ pub struct AppState {
     /// Set when connected; drives the transport-type indicator in the status bar.
     pub transport_type: Option<TransportType>,
     pub show_help: bool,
+    /// Open `/` filter prompt for the active tab's list.
+    pub filter_prompt: Option<FilterPrompt>,
 
     // Topics tab
     pub topics: HashMap<String, TopicData>,
@@ -77,10 +81,12 @@ pub struct AppState {
     // Sticky on purpose: once a user makes any manual choice, later topic
     // catalogs should keep honoring that explicit desired set across reconnects.
     pub subscriptions_customized: bool,
+    pub topic_filter: String,
 
     // Nodes tab
     pub nodes: Vec<NodeInfo>,
     pub node_selected: usize,
+    pub node_filter: String,
 
     // Log tab
     pub log_entries: VecDeque<LogEntry>,
@@ -108,8 +114,9 @@ pub struct AppState {
     pub param_node: Option<String>,
     pub parameters: Vec<ParamInfo>,
     pub param_selected: usize,
+    pub param_filter: String,
     pub editing_param: bool,
-    pub param_input: String,
+    pub param_input: TextInput,
     pub param_status: Option<String>,
     /// A load or set was sent and its first reply should update `param_status`.
     pub param_awaiting_reply: bool,
@@ -132,14 +139,17 @@ impl Default for AppState {
             connected: false,
             transport_type: None,
             show_help: false,
+            filter_prompt: None,
             topics: HashMap::new(),
             topic_names: Vec::new(),
             topic_selected: 0,
             tree_expanded: HashMap::new(),
             desired_subscriptions: HashSet::new(),
             subscriptions_customized: false,
+            topic_filter: String::new(),
             nodes: Vec::new(),
             node_selected: 0,
+            node_filter: String::new(),
             log_entries: VecDeque::new(),
             log_max_entries: 10_000,
             log_selected: 0,
@@ -160,8 +170,9 @@ impl Default for AppState {
             param_node: None,
             parameters: Vec::new(),
             param_selected: 0,
+            param_filter: String::new(),
             editing_param: false,
-            param_input: String::new(),
+            param_input: TextInput::default(),
             param_status: None,
             param_awaiting_reply: false,
             topic_endpoints: None,
@@ -184,7 +195,7 @@ impl AppState {
     /// Topics tab.
     pub fn endpoint_query_topic(&self) -> Option<String> {
         (self.active_tab == Tab::Topics)
-            .then(|| self.topic_names.get(self.topic_selected).cloned())
+            .then(|| self.selected_topic_name())
             .flatten()
     }
 
@@ -204,19 +215,24 @@ impl AppState {
     /// Replace the node list, keeping the Nodes and Params selections on the
     /// same node by name, or clamped if it is gone.
     fn handle_node_list(&mut self, nodes: Vec<NodeInfo>) {
-        let reselect = |selected: usize| {
-            self.nodes
-                .get(selected)
-                .and_then(|old| {
-                    nodes
-                        .iter()
-                        .position(|n| n.name == old.name && n.namespace == old.namespace)
-                })
-                .unwrap_or_else(|| selected.min(nodes.len().saturating_sub(1)))
-        };
-        self.node_selected = reselect(self.node_selected);
-        self.param_node_selected = reselect(self.param_node_selected);
+        // `node_selected` indexes the filtered Nodes list; `param_node_selected`
+        // indexes the unfiltered list on the Params tab.
+        let node_key = self
+            .filtered_nodes()
+            .get(self.node_selected)
+            .map(|n| node_fqn(n));
+        let param_key = self.nodes.get(self.param_node_selected).map(node_fqn);
         self.nodes = nodes;
+        let reselect = |selected: &mut usize, key: Option<String>, fqns: Vec<String>| match key
+            .and_then(|k| fqns.iter().position(|f| *f == k))
+        {
+            Some(index) => *selected = index,
+            None => filter::clamp_selection(selected, fqns.len()),
+        };
+        let fqns = self.filtered_nodes().into_iter().map(node_fqn).collect();
+        reselect(&mut self.node_selected, node_key, fqns);
+        let fqns = self.nodes.iter().map(node_fqn).collect();
+        reselect(&mut self.param_node_selected, param_key, fqns);
     }
 
     pub fn handle_response(&mut self, response: Response) {
@@ -291,5 +307,33 @@ mod tests {
 
         state.handle_response(Response::NodeList(vec![]));
         assert_eq!(state.node_selected, 0);
+    }
+
+    #[test]
+    fn node_list_refresh_keeps_selection_within_filter() {
+        let mut state = AppState {
+            node_filter: "cam".into(),
+            ..AppState::default()
+        };
+        state.handle_response(Response::NodeList(vec![
+            node("cam_left"),
+            node("lidar"),
+            node("cam_right"),
+        ]));
+        state.node_selected = 1;
+        assert_eq!(
+            state.filtered_nodes()[state.node_selected].name,
+            "cam_right"
+        );
+
+        state.handle_response(Response::NodeList(vec![
+            node("cam_front"),
+            node("cam_left"),
+            node("cam_right"),
+        ]));
+        assert_eq!(
+            state.filtered_nodes()[state.node_selected].name,
+            "cam_right"
+        );
     }
 }

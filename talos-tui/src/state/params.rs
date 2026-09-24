@@ -1,6 +1,7 @@
 use talos_common::protocol::types::{NodeInfo, ParamInfo};
 
 use super::AppState;
+use super::filter::matches_filter;
 
 pub(crate) fn node_fqn(node: &NodeInfo) -> String {
     if node.namespace.is_empty() || node.namespace == "/" {
@@ -15,10 +16,24 @@ pub(crate) fn node_label(node: &NodeInfo) -> String {
 }
 
 impl AppState {
+    pub fn filtered_nodes(&self) -> Vec<&NodeInfo> {
+        self.nodes
+            .iter()
+            .filter(|n| matches_filter(&node_fqn(n), &self.node_filter))
+            .collect()
+    }
+
+    pub fn filtered_parameters(&self) -> Vec<&ParamInfo> {
+        self.parameters
+            .iter()
+            .filter(|p| matches_filter(&p.name, &self.param_filter))
+            .collect()
+    }
+
     pub(crate) fn handle_parameters(&mut self, node: String, parameters: Vec<ParamInfo>) {
         self.param_node = Some(node);
         self.parameters = parameters;
-        if self.param_selected >= self.parameters.len() {
+        if self.param_selected >= self.filtered_parameters().len() {
             self.param_selected = 0;
         }
         // After a set, the follow-up refresh must not hide the set's result.
