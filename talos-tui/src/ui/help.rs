@@ -36,6 +36,10 @@ pub fn draw(f: &mut Frame, area: Rect) {
             Span::styled("  ←/→      ", Style::default().fg(Color::Yellow)),
             Span::raw("Collapse / expand tree"),
         ]),
+        Line::from(vec![
+            Span::styled("  r        ", Style::default().fg(Color::Yellow)),
+            Span::raw("Refresh topic and node lists"),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
             "Topics Tab",

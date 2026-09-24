@@ -27,6 +27,10 @@ those entries into the versioned section when a release is created.
 
 ### Fixed
 
+- TUI: the topic and node lists now refresh every 2 seconds while connected,
+  so new topics and nodes appear (and new topics are subscribed as usual) and
+  vanished ones are removed without a reconnect. The selection stays on the
+  same topic or node. Press `r` to refresh at once.
 - QUIC clients no longer lose a topic's stream for the rest of the session when
   a single message is between 8 and 16 MiB. The data-stream decoder now uses
   the protocol's 16 MiB frame limit instead of the 8 MiB codec default.

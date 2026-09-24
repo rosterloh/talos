@@ -201,12 +201,28 @@ impl AppState {
         }
     }
 
+    /// Replace the node list, keeping the Nodes and Params selections on the
+    /// same node by name, or clamped if it is gone.
+    fn handle_node_list(&mut self, nodes: Vec<NodeInfo>) {
+        let reselect = |selected: usize| {
+            self.nodes
+                .get(selected)
+                .and_then(|old| {
+                    nodes
+                        .iter()
+                        .position(|n| n.name == old.name && n.namespace == old.namespace)
+                })
+                .unwrap_or_else(|| selected.min(nodes.len().saturating_sub(1)))
+        };
+        self.node_selected = reselect(self.node_selected);
+        self.param_node_selected = reselect(self.param_node_selected);
+        self.nodes = nodes;
+    }
+
     pub fn handle_response(&mut self, response: Response) {
         match response {
             Response::TopicList(topics) => self.handle_topic_list(topics),
-            Response::NodeList(nodes) => {
-                self.nodes = nodes;
-            }
+            Response::NodeList(nodes) => self.handle_node_list(nodes),
             Response::TopicData {
                 topic,
                 type_name,
@@ -244,5 +260,36 @@ impl AppState {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(name: &str) -> NodeInfo {
+        NodeInfo {
+            name: name.into(),
+            namespace: "/".into(),
+            publishers: vec![],
+            subscribers: vec![],
+            services: vec![],
+        }
+    }
+
+    #[test]
+    fn node_list_refresh_keeps_selection_by_name_or_clamps() {
+        let mut state = AppState::default();
+        state.handle_response(Response::NodeList(vec![node("a"), node("b"), node("c")]));
+        state.node_selected = 1;
+        state.param_node_selected = 2;
+
+        state.handle_response(Response::NodeList(vec![node("new"), node("a"), node("b")]));
+        assert_eq!(state.nodes[state.node_selected].name, "b");
+        // "c" is gone: clamp to the end of the list.
+        assert_eq!(state.param_node_selected, 2);
+
+        state.handle_response(Response::NodeList(vec![]));
+        assert_eq!(state.node_selected, 0);
     }
 }

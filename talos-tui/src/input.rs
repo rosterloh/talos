@@ -46,6 +46,11 @@ pub fn handle_key_event(
             state.show_help = true;
             AppAction::Continue
         }
+        KeyCode::Char('r') => {
+            // The client treats `ListTopics` as "refresh the lists now".
+            let _ = cmd_tx.send(Request::ListTopics);
+            AppAction::Continue
+        }
         KeyCode::Char('1') => {
             state.active_tab = Tab::Topics;
             AppAction::Continue

@@ -111,27 +111,19 @@ impl AppState {
 
             let should_be_subscribed =
                 auto_subscribe_all || self.desired_subscriptions.contains(&name);
-            // `ListTopics` currently arrives once per connection, so a fresh
-            // catalog snapshot resets the per-connection subscription baseline.
-            // Keep pending manual toggles visible, but otherwise wait for the
-            // subscribe ack or live data before showing a topic as on again.
+            // `ListTopics` is re-polled during a connection, so existing
+            // topics keep their subscription state and cached samples; new
+            // ones start unsubscribed until a subscribe ack or live data
+            // arrives. On reconnect, every desired topic is marked pending
+            // before it is subscribed again.
             let mut topic = current_topics
                 .remove(&name)
                 .unwrap_or_else(|| TopicData::placeholder(&name));
 
             topic.info = info;
-            if matches!(
-                topic.subscription,
-                TopicSubscriptionState::PendingSubscribe
-                    | TopicSubscriptionState::PendingUnsubscribe
-            ) {
-                // Keep in-flight manual changes visible until the matching
-                // ack or retry path resolves them.
-            } else if topic.subscription == TopicSubscriptionState::Error && !should_be_subscribed {
+            if topic.subscription == TopicSubscriptionState::Error && !should_be_subscribed {
                 topic.subscription = TopicSubscriptionState::Unsubscribed;
                 topic.subscription_error = None;
-            } else if topic.subscription != TopicSubscriptionState::Error {
-                topic.subscription = TopicSubscriptionState::Unsubscribed;
             }
 
             if auto_subscribe_all {
@@ -274,6 +266,15 @@ impl AppState {
                 self.desired_subscriptions.contains(*name) && self.topics.contains_key(*name)
             })
             .cloned()
+            .collect()
+    }
+
+    /// Desired topics not yet subscribed or in flight, e.g. topics that
+    /// appeared in a refreshed topic list. Errored topics wait for reconnect.
+    pub fn desired_topics_to_subscribe(&self) -> Vec<String> {
+        self.desired_topics_for_connection()
+            .into_iter()
+            .filter(|name| self.topics[name].subscription == TopicSubscriptionState::Unsubscribed)
             .collect()
     }
 
@@ -594,6 +595,48 @@ mod tests {
             state.desired_topics_for_connection(),
             vec!["/camera".to_string()]
         );
+    }
+
+    #[test]
+    fn refreshed_topic_list_keeps_state_and_selection_by_name() {
+        let mut state = AppState::default();
+        state.handle_response(Response::TopicList(vec![
+            topic("/beta", "std_msgs/msg/String"),
+            topic("/delta", "std_msgs/msg/String"),
+        ]));
+        state.handle_response(Response::Subscribed {
+            topics: vec![TopicSub {
+                topic: "/delta".into(),
+                type_name: "std_msgs/msg/String".into(),
+            }],
+        });
+        state.topic_selected = 1;
+        assert_eq!(state.desired_topics_to_subscribe(), ["/beta"]);
+
+        // `/alpha` appears before the selection, `/beta` vanishes.
+        state.handle_response(Response::TopicList(vec![
+            topic("/alpha", "std_msgs/msg/String"),
+            topic("/delta", "std_msgs/msg/String"),
+            topic("/gamma", "std_msgs/msg/String"),
+        ]));
+
+        assert_eq!(state.topic_names, ["/alpha", "/delta", "/gamma"]);
+        assert_eq!(state.topic_names[state.topic_selected], "/delta");
+        assert!(!state.topics.contains_key("/beta"));
+        assert_eq!(
+            state.topics["/delta"].subscription,
+            TopicSubscriptionState::Subscribed
+        );
+        // Only the newly advertised topics still need a subscribe.
+        assert_eq!(state.desired_topics_to_subscribe(), ["/alpha", "/gamma"]);
+
+        // The selected topic vanishing clamps the selection.
+        state.topic_selected = 2;
+        state.handle_response(Response::TopicList(vec![topic(
+            "/alpha",
+            "std_msgs/msg/String",
+        )]));
+        assert_eq!(state.topic_selected, 0);
     }
 
     #[test]
