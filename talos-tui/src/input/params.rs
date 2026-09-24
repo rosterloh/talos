@@ -105,14 +105,16 @@ mod tests {
 
     #[test]
     fn param_edit_preserves_existing_string_type() {
-        let mut state = AppState::default();
-        state.param_node = Some("/demo".into());
-        state.parameters = vec![ParamInfo {
-            name: "answer".into(),
-            value: ParamValue::String("42".into()),
-        }];
-        state.editing_param = true;
-        state.param_input = "42".into();
+        let mut state = AppState {
+            param_node: Some("/demo".into()),
+            parameters: vec![ParamInfo {
+                name: "answer".into(),
+                value: ParamValue::String("42".into()),
+            }],
+            editing_param: true,
+            param_input: "42".into(),
+            ..Default::default()
+        };
 
         let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
         handle_edit_key(

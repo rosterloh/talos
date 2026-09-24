@@ -68,11 +68,10 @@ async fn handle_uds_connection(
                     Some(Ok(request)) => {
                         if let Some(response) =
                             handle_request(&request, &config, &joint_publisher, &graph_handle, &router, client_id).await
+                            && let Err(e) = writer.send(response).await
                         {
-                            if let Err(e) = writer.send(response).await {
-                                error!("failed to send response: {e}");
-                                break;
-                            }
+                            error!("failed to send response: {e}");
+                            break;
                         }
                     }
                     Some(Err(e)) => {

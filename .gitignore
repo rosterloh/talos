@@ -1,2 +1,4 @@
 /target
+/.pixi
 /docs/book
+/coverage

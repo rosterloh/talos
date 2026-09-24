@@ -7,6 +7,77 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Added
+
+- Runtime dynamic-message fallback in `talos-agent`: topics whose message type
+  has no compiled-in converter are now subscribed via `rclrs`'s
+  `DynamicMessage` introspection support and rendered into the existing
+  `DynValue` tree, instead of being skipped. Scalars, nested messages, fixed
+  arrays, unbounded and bounded sequences (including sequences of nested
+  messages, e.g. `PoseArray.poses`), and arrays of nested messages are covered;
+  only wide/long-double/wstring scalars currently fall back to a debug
+  representation (tracked as follow-up). The static registry remains the fast
+  path for known types, so existing behavior is unchanged.
+- Add a Coverage workflow that publishes LCOV artifacts for non-ROS crates and
+  fails pull requests when line coverage drops against the base branch.
+- Add a CI workflow that enforces `cargo fmt` and `cargo clippy -D warnings`,
+  and runs the test suites. Formatting and the non-ROS crates are checked on a
+  plain stable toolchain; `talos-agent` is built, linted and tested inside the
+  Pixi ROS 2 Lyrical environment.
+- Add `talos-agent/tests/bridge_live.rs`, which publishes on a real ROS 2 topic
+  and asserts the bridge forwards it. The existing tests drive the IPC protocol
+  with synthetic responses, so they cannot detect a bridge that never delivers
+  any message.
+
+### Changed
+
+- Update dependencies: `toml` 0.8 → 1, `rcgen` 0.13 → 0.14 (renamed
+  `CertifiedKey` field in cert generation), `ratatui` 0.29 → 0.30,
+  `crossterm` 0.28 → 0.29, plus semver-compatible lockfile refreshes.
+- Migrate the protocol codec from `bincode` 1 to 2 using the `legacy`
+  configuration, keeping the wire format byte-identical so mixed-version
+  agents and clients still interoperate. Serialization now goes through
+  shared `protocol::codec::{to_vec, from_slice}` helpers. (crates.io lists
+  a `bincode` 3.0.0, but it is an empty placeholder release; 2.x is the
+  current real release line.)
+- Upgrade the ROS 2 environment from Kilted to Lyrical Luth and stop building
+  `rclrs` from source. `rosidl_runtime_rs` now comes from crates.io, and the
+  `robostack-lyrical` conda packages provide the ROS 2 runtime plus
+  pre-generated Rust message bindings. `talos-agent` takes its message types
+  from `ros-env`, which compiles those bindings against `rosidl_runtime_rs` 0.7
+  and so picks up the Lyrical `Sequence<T>` ABI fix
+  ([ros2-rust/ros2_rust#659](https://github.com/ros2-rust/ros2_rust/issues/659)).
+  `rclrs` moves to 0.8 (the first crates.io release with Lyrical support) and
+  `ros-env` to 0.3.
+- Move the Pixi manifest to the repository root (from `rclrs_ws/`) and slim it to
+  `ros2-ros-base` + the Rust toolchain. Removed the `rclrs_ws` colcon /
+  vcstool source-build workspace and its `setup.bash` step; building now only
+  needs `pixi install` then `cargo build`.
+- Add `osx-arm64` to the Pixi platforms, so the agent can be built and checked
+  on Apple Silicon workstations alongside `linux-64` / `linux-aarch64`.
+- Follow RoboStack's package rename from `ros-lyrical-*` to `ros2-*`
+  ([RoboStack/vinca#104](https://github.com/RoboStack/vinca/pull/104)): depend
+  on `ros2-ros-base` and pin `ros2-distro-mutex` to a `lyrical` build, so the
+  distro stays explicit once the legacy aliases are dropped. Refresh
+  `pixi.lock` (`ros2-rclcpp` 32.0.3, `ros2-sensor-msgs` 5.9.3,
+  `ros2-rosidl-generator-rs` 0.5.0).
+- Bump the Pixi Rust toolchain from 1.93 to 1.98.
+- Bump the Pixi `compilers` from 1.11 to 2.0 (clang 21 on macOS, gcc 15 on
+  Linux). Compilers 2.0 no longer exports `CC`/`CFLAGS`/`LDFLAGS`; on macOS its
+  clang config files add the environment's `lib` directory as an rpath, so the
+  `RUSTFLAGS` rpath workaround for `osx-arm64` is removed.
+- Refresh `Cargo.lock` with semver-compatible updates (e.g. `tokio` 1.53,
+  `quinn` 0.11.12, `rustls` 0.23.45, `clap` 4.6.7).
+- Run the CI `talos-agent` job on a native aarch64 runner (`ubuntu-26.04-arm`)
+  as well as x86-64 (`ubuntu-26.04`), covering the `linux-aarch64` Pixi platform.
+
+> Known issue on Lyrical: the `DynamicMessage` fallback in `rclrs` still panics
+> on primitive or string sequence fields (e.g. `sensor_msgs/PointCloud2`).
+> Topics with a compiled-in converter and the parameter services are unaffected.
+> Fix proposed upstream in
+> [ros2-rust/ros2_rust#714](https://github.com/ros2-rust/ros2_rust/pull/714); the
+> affected `talos-agent` test is ignored until it ships.
+
 ## [0.2.0] - 2026-06-10
 
 ### Added
@@ -47,6 +118,20 @@ those entries into the versioned section when a release is created.
 - Clear stale unsubscribe errors after reconnect when the desired state is already unsubscribed.
 - Ignore stale TUI subscribe or unsubscribe acknowledgements after desired topic intent changes.
 - Roll back optimistic TUI topic toggles if the client command channel has already stopped.
+- Fix the agent bridge delivering no topic data at all after the `rclrs` 0.8
+  upgrade. Two independent causes: subscription handles returned by
+  `create_subscription` were discarded, and under `rclrs` 0.8 that handle owns
+  the subscription's place in the executor wait set, so every subscription was
+  torn down immediately (the ROS graph reported zero subscribers); and
+  `executor.spin()` was called directly inside a `tokio::spawn`ed task, so ROS 2
+  callbacks ran on a Tokio worker thread that never yields and the
+  bridge-to-router forwarder they woke was parked in that worker's
+  non-stealable LIFO slot and never polled. Subscriptions are now held for the
+  lifetime of the spin, which runs under `tokio::task::block_in_place`.
+- Clear the accumulated `clippy` and `rustfmt` backlog across all four crates
+  (collapsible `if let` chains, `Default` field reassignment, `approx_constant`
+  in test fixtures, a `loop`/`match` that reads better as `while let`, and a
+  test module that preceded production items).
 
 ## [0.1.5] - 2026-04-28
 

@@ -302,30 +302,31 @@ fn handle_down(state: &mut AppState) {
 }
 
 fn handle_left(state: &mut AppState) {
-    if state.active_tab == Tab::Topics && state.active_pane == Pane::Right {
-        if let Some(topic_name) = state.topic_names.get(state.topic_selected) {
-            let prefix = format!("{topic_name}.");
-            let keys_to_collapse: Vec<String> = state
-                .tree_expanded
-                .keys()
-                .filter(|k| k.starts_with(&prefix))
-                .cloned()
-                .collect();
-            for key in keys_to_collapse {
-                state.tree_expanded.insert(key, false);
-            }
+    if state.active_tab == Tab::Topics
+        && state.active_pane == Pane::Right
+        && let Some(topic_name) = state.topic_names.get(state.topic_selected)
+    {
+        let prefix = format!("{topic_name}.");
+        let keys_to_collapse: Vec<String> = state
+            .tree_expanded
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for key in keys_to_collapse {
+            state.tree_expanded.insert(key, false);
         }
     }
 }
 
 fn handle_right(state: &mut AppState) {
-    if state.active_tab == Tab::Topics && state.active_pane == Pane::Right {
-        if let Some(topic_name) = state.topic_names.get(state.topic_selected)
-            && let Some(topic_data) = state.topics.get(topic_name)
-            && let Some(ref data) = topic_data.latest
-        {
-            expand_first_level(data, topic_name, &mut state.tree_expanded);
-        }
+    if state.active_tab == Tab::Topics
+        && state.active_pane == Pane::Right
+        && let Some(topic_name) = state.topic_names.get(state.topic_selected)
+        && let Some(topic_data) = state.topics.get(topic_name)
+        && let Some(ref data) = topic_data.latest
+    {
+        expand_first_level(data, topic_name, &mut state.tree_expanded);
     }
 }
 
@@ -341,13 +342,13 @@ fn expand_first_level(value: &DynValue, path: &str, expanded: &mut HashMap<Strin
 }
 
 fn handle_enter(state: &mut AppState) {
-    if state.active_tab == Tab::Topics && state.active_pane == Pane::Right {
-        if let Some(topic_name) = state.topic_names.get(state.topic_selected).cloned()
-            && let Some(topic_data) = state.topics.get(&topic_name)
-            && let Some(ref data) = topic_data.latest
-        {
-            toggle_first_level(data, &topic_name, &mut state.tree_expanded);
-        }
+    if state.active_tab == Tab::Topics
+        && state.active_pane == Pane::Right
+        && let Some(topic_name) = state.topic_names.get(state.topic_selected).cloned()
+        && let Some(topic_data) = state.topics.get(&topic_name)
+        && let Some(ref data) = topic_data.latest
+    {
+        toggle_first_level(data, &topic_name, &mut state.tree_expanded);
     }
 }
 

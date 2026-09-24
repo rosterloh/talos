@@ -1,3 +1,4 @@
+use ros_env::sensor_msgs;
 use talos_common::config::AgentConfig;
 use talos_common::protocol::messages::Response;
 use talos_common::protocol::types::PoseInfo;
@@ -18,9 +19,11 @@ pub(super) async fn set_joint_position(
     let guard = joint_publisher.lock().await;
     match guard.as_ref() {
         Some(publisher) => {
-            let mut msg = sensor_msgs::msg::JointState::default();
-            msg.name = vec![joint.to_string()];
-            msg.position = vec![position];
+            let msg = sensor_msgs::msg::JointState {
+                name: vec![joint.to_string()],
+                position: vec![position],
+                ..Default::default()
+            };
             match publisher.publish(msg) {
                 Ok(()) => {
                     info!(joint = %joint, position = %position, "published joint command");
@@ -101,17 +104,19 @@ mod tests {
 
     #[test]
     fn configured_poses_are_sorted_by_pose_and_joint_name() {
-        let mut config = AgentConfig::default();
-        config.poses = HashMap::from([
-            (
-                "stand".into(),
-                HashMap::from([("knee".into(), 0.5), ("ankle".into(), -0.25)]),
-            ),
-            (
-                "home".into(),
-                HashMap::from([("shoulder".into(), 1.0), ("elbow".into(), 0.0)]),
-            ),
-        ]);
+        let config = AgentConfig {
+            poses: HashMap::from([
+                (
+                    "stand".into(),
+                    HashMap::from([("knee".into(), 0.5), ("ankle".into(), -0.25)]),
+                ),
+                (
+                    "home".into(),
+                    HashMap::from([("shoulder".into(), 1.0), ("elbow".into(), 0.0)]),
+                ),
+            ]),
+            ..Default::default()
+        };
 
         let poses = configured_poses(&config);
 

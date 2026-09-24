@@ -6,9 +6,6 @@ members = [
     "talos-agent",
     "talos-tui",
 ]
-# rclrs_ws is a nested colcon/cargo workspace built via pixi; keep its crates
-# out of this workspace so cargo doesn't try to adopt them.
-exclude = ["rclrs_ws"]
 
 [workspace.package]
 version = "0.2.0"
@@ -20,11 +17,11 @@ license = "MIT"
 talos-common = { path = "talos-common" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
-bincode = "1"
+bincode = { version = "2", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
-toml = "0.8"
+toml = "1"
 thiserror = "2"

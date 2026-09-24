@@ -1,11 +1,17 @@
 use std::error::Error;
 
+use ros_env::{builtin_interfaces, geometry_msgs, nav_msgs, rcl_interfaces, sensor_msgs, std_msgs};
+
 use talos_common::protocol::messages::Response;
 use talos_common::protocol::types::{DynValue, ParamValue, Timestamp};
 use tokio::sync::mpsc;
 
 pub type TopicSender = mpsc::UnboundedSender<Response>;
-type SubscribeResult = Result<(), Box<dyn Error + Send + Sync>>;
+/// Opaque keep-alive for a created subscription. rclrs 0.8 ties a
+/// subscription's place in the executor wait set to the returned handle's
+/// lifetime, so the caller must hold this for as long as it wants messages.
+pub type SubscriptionGuard = Box<dyn std::any::Any + Send + Sync>;
+type SubscribeResult = Result<SubscriptionGuard, Box<dyn Error + Send + Sync>>;
 type SubscribeFn = for<'a> fn(
     &rclrs::Node,
     rclrs::PrimitiveOptions<'a>,
@@ -76,12 +82,13 @@ macro_rules! message_registry {
                 type_name: String,
                 tx: TopicSender,
             ) -> SubscribeResult {
-                node.create_subscription::<$msg_ty, _>(opts, move |msg: $msg_ty| {
-                    let stamp = ($stamp)(&msg);
-                    let data = $convert(&msg);
-                    send_topic_data(&tx, &topic, &type_name, stamp, data);
-                })?;
-                Ok(())
+                let subscription =
+                    node.create_subscription::<$msg_ty, _>(opts, move |msg: $msg_ty| {
+                        let stamp = ($stamp)(&msg);
+                        let data = $convert(&msg);
+                        send_topic_data(&tx, &topic, &type_name, stamp, data);
+                    })?;
+                Ok(Box::new(subscription))
             }
         )+
     };
@@ -393,115 +400,6 @@ pub fn message_type_entry(type_name: &str) -> Option<&'static MessageTypeEntry> 
         .find(|entry| entry.type_name == type_name)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn field_names(dv: &DynValue) -> Vec<&str> {
-        match dv {
-            DynValue::Struct { fields, .. } => fields.iter().map(|(k, _)| k.as_str()).collect(),
-            _ => panic!("expected DynValue::Struct"),
-        }
-    }
-
-    fn array_len(dv: &DynValue, field: &str) -> usize {
-        match dv {
-            DynValue::Struct { fields, .. } => {
-                let val = fields.iter().find(|(k, _)| k == field).map(|(_, v)| v);
-                match val.expect("field not found") {
-                    DynValue::Array(a) => a.len(),
-                    _ => panic!("field {field} is not an Array"),
-                }
-            }
-            _ => panic!("expected DynValue::Struct"),
-        }
-    }
-
-    #[test]
-    fn laser_scan_field_names_and_range_length() {
-        let mut msg = sensor_msgs::msg::LaserScan::default();
-        msg.ranges = vec![1.0, 2.0, 3.0];
-        msg.intensities = vec![0.1, 0.2, 0.3];
-        let dv = laser_scan_to_dynvalue(&msg);
-        let names = field_names(&dv);
-        assert_eq!(
-            names,
-            &[
-                "header",
-                "angle_min",
-                "angle_max",
-                "angle_increment",
-                "time_increment",
-                "scan_time",
-                "range_min",
-                "range_max",
-                "ranges",
-                "intensities"
-            ]
-        );
-        assert_eq!(array_len(&dv, "ranges"), 3);
-        assert_eq!(array_len(&dv, "intensities"), 3);
-    }
-
-    #[test]
-    fn imu_field_names_and_covariance_lengths() {
-        let msg = sensor_msgs::msg::Imu::default();
-        let dv = imu_to_dynvalue(&msg);
-        let names = field_names(&dv);
-        assert_eq!(
-            names,
-            &[
-                "header",
-                "orientation",
-                "orientation_covariance",
-                "angular_velocity",
-                "angular_velocity_covariance",
-                "linear_acceleration",
-                "linear_acceleration_covariance"
-            ]
-        );
-        assert_eq!(array_len(&dv, "orientation_covariance"), 9);
-        assert_eq!(array_len(&dv, "angular_velocity_covariance"), 9);
-        assert_eq!(array_len(&dv, "linear_acceleration_covariance"), 9);
-    }
-
-    #[test]
-    fn pose_stamped_field_names() {
-        let msg = geometry_msgs::msg::PoseStamped::default();
-        let dv = pose_stamped_to_dynvalue(&msg);
-        let names = field_names(&dv);
-        assert_eq!(names, &["header", "pose"]);
-    }
-
-    #[test]
-    fn supported_message_registry_lists_current_types_once() {
-        let supported = supported_message_types();
-        assert_eq!(
-            supported,
-            &[
-                "nav_msgs/msg/Odometry",
-                "geometry_msgs/msg/Twist",
-                "std_msgs/msg/String",
-                "sensor_msgs/msg/JointState",
-                "sensor_msgs/msg/LaserScan",
-                "sensor_msgs/msg/Imu",
-                "geometry_msgs/msg/PoseStamped",
-                "rcl_interfaces/msg/Log",
-            ]
-        );
-
-        let mut sorted = supported.to_vec();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), supported.len());
-
-        for type_name in supported {
-            assert!(message_type_entry(type_name).is_some());
-        }
-        assert!(message_type_entry("geometry_msgs/msg/Pose").is_none());
-    }
-}
-
 pub fn log_to_dynvalue(msg: &rcl_interfaces::msg::Log) -> DynValue {
     let level = match msg.level {
         10 => "DEBUG",
@@ -609,4 +507,115 @@ pub fn param_value_to_ros(v: &ParamValue) -> rcl_interfaces::msg::ParameterValue
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field_names(dv: &DynValue) -> Vec<&str> {
+        match dv {
+            DynValue::Struct { fields, .. } => fields.iter().map(|(k, _)| k.as_str()).collect(),
+            _ => panic!("expected DynValue::Struct"),
+        }
+    }
+
+    fn array_len(dv: &DynValue, field: &str) -> usize {
+        match dv {
+            DynValue::Struct { fields, .. } => {
+                let val = fields.iter().find(|(k, _)| k == field).map(|(_, v)| v);
+                match val.expect("field not found") {
+                    DynValue::Array(a) => a.len(),
+                    _ => panic!("field {field} is not an Array"),
+                }
+            }
+            _ => panic!("expected DynValue::Struct"),
+        }
+    }
+
+    #[test]
+    fn laser_scan_field_names_and_range_length() {
+        let msg = sensor_msgs::msg::LaserScan {
+            ranges: vec![1.0, 2.0, 3.0],
+            intensities: vec![0.1, 0.2, 0.3],
+            ..Default::default()
+        };
+        let dv = laser_scan_to_dynvalue(&msg);
+        let names = field_names(&dv);
+        assert_eq!(
+            names,
+            &[
+                "header",
+                "angle_min",
+                "angle_max",
+                "angle_increment",
+                "time_increment",
+                "scan_time",
+                "range_min",
+                "range_max",
+                "ranges",
+                "intensities"
+            ]
+        );
+        assert_eq!(array_len(&dv, "ranges"), 3);
+        assert_eq!(array_len(&dv, "intensities"), 3);
+    }
+
+    #[test]
+    fn imu_field_names_and_covariance_lengths() {
+        let msg = sensor_msgs::msg::Imu::default();
+        let dv = imu_to_dynvalue(&msg);
+        let names = field_names(&dv);
+        assert_eq!(
+            names,
+            &[
+                "header",
+                "orientation",
+                "orientation_covariance",
+                "angular_velocity",
+                "angular_velocity_covariance",
+                "linear_acceleration",
+                "linear_acceleration_covariance"
+            ]
+        );
+        assert_eq!(array_len(&dv, "orientation_covariance"), 9);
+        assert_eq!(array_len(&dv, "angular_velocity_covariance"), 9);
+        assert_eq!(array_len(&dv, "linear_acceleration_covariance"), 9);
+    }
+
+    #[test]
+    fn pose_stamped_field_names() {
+        let msg = geometry_msgs::msg::PoseStamped::default();
+        let dv = pose_stamped_to_dynvalue(&msg);
+        let names = field_names(&dv);
+        assert_eq!(names, &["header", "pose"]);
+    }
+
+    #[test]
+    fn supported_message_registry_lists_current_types_once() {
+        let supported = supported_message_types();
+        assert_eq!(
+            supported,
+            &[
+                "nav_msgs/msg/Odometry",
+                "geometry_msgs/msg/Twist",
+                "std_msgs/msg/String",
+                "sensor_msgs/msg/JointState",
+                "sensor_msgs/msg/LaserScan",
+                "sensor_msgs/msg/Imu",
+                "geometry_msgs/msg/PoseStamped",
+                "rcl_interfaces/msg/Log",
+            ]
+        );
+
+        let mut sorted = supported.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), supported.len());
+
+        for type_name in supported {
+            assert!(message_type_entry(type_name).is_some());
+        }
+        assert!(message_type_entry("geometry_msgs/msg/Pose").is_none());
+    }
 }

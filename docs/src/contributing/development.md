@@ -19,11 +19,11 @@ Without ROS 2:
 cargo check -p talos-common -p talos-cli -p talos-tui
 ```
 
-With the ROS 2/rclrs environment:
+With the ROS 2 Lyrical environment (provided by Pixi):
 
 ```bash
-source rclrs_ws/install/setup.bash
-cargo check --workspace
+pixi install
+pixi run check          # or: pixi shell, then cargo check --workspace
 ```
 
 With QUIC:
@@ -39,7 +39,50 @@ cargo test --workspace
 cargo test -p talos-common
 cargo test -p talos-agent --test integration
 cargo test -p talos-agent --test integration --features quic
+cargo test -p talos-agent --test bridge_live
 ```
+
+`bridge_live` is the only test that exercises a real ROS 2 topic: it publishes
+on one and asserts the bridge forwards the message to the router. The
+`integration` tests drive the IPC protocol with synthetic responses, so they
+stay green even if the bridge delivers nothing. Run it inside the Pixi
+environment.
+
+## Lints
+
+CI enforces both of these, so run them before pushing:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --features quic -- -D warnings
+```
+
+The `talos-agent` job builds and tests inside the Pixi ROS 2 environment on both
+x86-64 and aarch64 Linux runners.
+
+## Coverage
+
+The Coverage workflow reports LCOV output for the non-ROS crates
+(`talos-common`, `talos-cli`, and `talos-tui`) with the `quic` feature enabled.
+Pull requests compare that coverage against the base branch and fail if line
+coverage decreases.
+
+Install `cargo-llvm-cov` before running the local coverage command:
+
+```bash
+cargo install cargo-llvm-cov --locked
+
+cargo llvm-cov -p talos-common -p talos-cli -p talos-tui \
+  --features quic \
+  --lcov \
+  --output-path coverage/lcov.info
+
+python3 .github/scripts/coverage_report.py summarize coverage/lcov.info
+```
+
+On machines without the Pixi environment, temporarily remove `talos-agent` from
+the workspace members before running non-ROS coverage; the CI workflow does this
+because these packages do not need ROS 2.
 
 ## Rustdoc
 
