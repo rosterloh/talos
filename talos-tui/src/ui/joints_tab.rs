@@ -1,366 +1,195 @@
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph};
-
+use super::style;
 use crate::state::{AppState, JointFocus, Pane};
+use ratatui::{
+    Frame,
+    layout::{Constraint, Layout, Rect},
+    text::Line,
+    widgets::{Clear, Gauge, List, ListItem, Paragraph, Wrap},
+};
+use talos_common::protocol::types::JointType;
 
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-        .split(area);
-
-    draw_left_pane(f, state, chunks[0]);
-    draw_joint_detail(f, state, chunks[1]);
-
-    if state.pose_confirming {
-        draw_pose_confirm(f, state, area);
-    }
-}
-
-fn draw_left_pane(f: &mut Frame, state: &AppState, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(5),
-            Constraint::Length(state.poses.len() as u16 + 4),
-        ])
-        .split(area);
-
-    draw_joint_list(f, state, chunks[0]);
-    draw_pose_list(f, state, chunks[1]);
-}
-
-fn draw_joint_list(f: &mut Frame, state: &AppState, area: Rect) {
-    let items: Vec<ListItem> = state
-        .joints
-        .iter()
-        .enumerate()
-        .map(|(i, joint)| {
-            let selected = state.joint_focus == JointFocus::JointList && i == state.joint_selected;
-            let marker = if selected { "▶ " } else { "  " };
-            let pos_str = joint
-                .position
-                .map(|p| format!("{p:>8.4}"))
-                .unwrap_or_else(|| "     N/A".to_string());
-            let style = if selected {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+    let [left, right] = super::panes(area, state.active_pane);
+    if !left.is_empty() {
+        let [joints, poses] = if left.height < 12 {
+            if state.joint_focus == JointFocus::JointList {
+                [left, Rect::default()]
             } else {
-                Style::default()
-            };
-
-            ListItem::new(Line::from(vec![
-                Span::styled(marker, style),
-                Span::styled(format!("{:<18}", joint.info.name), style),
-                Span::styled(pos_str, Style::default().fg(Color::Green)),
-            ]))
-        })
-        .collect();
-
-    let border_style = if state.active_pane == Pane::Left {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-
-    let header = Line::from(vec![
-        Span::styled("  ", Style::default()),
-        Span::styled(
-            format!("{:<18}", "JOINTS"),
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            "     Pos",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]);
-
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(header)
-            .border_style(border_style),
-    );
-
-    // A fresh state each frame is enough: ratatui scrolls to keep the selection visible.
-    let mut list_state = ListState::default().with_selected(Some(state.joint_selected));
-    f.render_stateful_widget(list, area, &mut list_state);
-}
-
-fn draw_pose_list(f: &mut Frame, state: &AppState, area: Rect) {
-    let items: Vec<ListItem> = state
-        .poses
-        .iter()
-        .enumerate()
-        .map(|(i, pose)| {
-            let selected = state.joint_focus == JointFocus::PoseList && i == state.pose_selected;
-            let marker = if selected { "▶ " } else { "  " };
-            let style = if selected {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(Line::from(Span::styled(
-                format!("{marker}{}", pose.name),
-                style,
-            )))
-        })
-        .collect();
-
-    let border_style = if state.active_pane == Pane::Left {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" POSES ")
-            .border_style(border_style),
-    );
-
-    let mut list_state = ListState::default().with_selected(Some(state.pose_selected));
-    f.render_stateful_widget(list, area, &mut list_state);
-}
-
-fn draw_joint_detail(f: &mut Frame, state: &AppState, area: Rect) {
-    let border_style = if state.active_pane == Pane::Right {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-
-    let joint = state.joints.get(state.joint_selected);
-
-    let (title, content_lines, gauge_info) = if let Some(joint) = joint {
-        let title = format!(" CONTROL: {} ", joint.info.name);
-        let joint_type = format!("{:?}", joint.info.joint_type);
-
-        let mut lines = vec![
-            Line::from(vec![
-                Span::styled("Type: ", Style::default().fg(Color::DarkGray)),
-                Span::raw(joint_type.clone()),
-            ]),
-            Line::from(vec![
-                Span::styled("Parent: ", Style::default().fg(Color::DarkGray)),
-                Span::raw(&joint.info.parent_link),
-            ]),
-            Line::from(vec![
-                Span::styled("Child: ", Style::default().fg(Color::DarkGray)),
-                Span::raw(&joint.info.child_link),
-            ]),
-            Line::from(""),
-        ];
-
-        let gauge = if let Some(ref limits) = joint.info.limits {
-            let pos = joint.position.unwrap_or(0.0);
-            let range = limits.upper - limits.lower;
-            let ratio = if range > 0.0 {
-                ((pos - limits.lower) / range).clamp(0.0, 1.0)
-            } else {
-                0.5
-            };
-
-            lines.push(Line::from(Span::styled(
-                "Position:",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )));
-
-            Some((limits.lower, limits.upper, pos, ratio))
-        } else {
-            lines.push(Line::from(vec![
-                Span::styled("Position: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    joint
-                        .position
-                        .map(|p| format!("{p:.4}"))
-                        .unwrap_or_else(|| "N/A".into()),
-                    Style::default().fg(Color::Green),
-                ),
-            ]));
-            None
-        };
-
-        // Editing indicator
-        if state.editing_joint {
-            lines.push(Line::from(""));
-            lines.push(Line::from(vec![
-                Span::styled("Set position: ", Style::default().fg(Color::Yellow)),
-                Span::styled(&state.joint_input, Style::default().fg(Color::White)),
-                Span::styled(
-                    "_",
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::SLOW_BLINK),
-                ),
-            ]));
-            if let Some(ref err) = state.joint_input_error {
-                lines.push(Line::from(Span::styled(
-                    err.as_str(),
-                    Style::default().fg(Color::Red),
-                )));
+                [Rect::default(), left]
             }
-        } else if let Some(ref status) = state.joint_status {
-            let color = if status.starts_with("error") {
-                Color::Red
-            } else {
-                Color::Yellow
-            };
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                status.as_str(),
-                Style::default().fg(color),
-            )));
-        }
-
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("Velocity: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                joint
-                    .velocity
-                    .map(|v| format!("{v:.4}"))
-                    .unwrap_or_else(|| "N/A".into()),
-                Style::default().fg(Color::Green),
-            ),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("Effort:   ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                joint
-                    .effort
-                    .map(|e| format!("{e:.4}"))
-                    .unwrap_or_else(|| "N/A".into()),
-                Style::default().fg(Color::Green),
-            ),
-        ]));
-
-        (title, lines, gauge)
-    } else {
-        (
-            " CONTROL ".to_string(),
-            vec![Line::from("No joint selected")],
-            None,
-        )
-    };
-
-    // Split the detail area for the gauge
-    let detail_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(6), // Info lines
-            Constraint::Length(3), // Gauge
-            Constraint::Min(0),    // Remaining info
-        ])
-        .split(area);
-
-    let info_top = Paragraph::new(content_lines[..content_lines.len().min(5)].to_vec()).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(border_style),
-    );
-    f.render_widget(info_top, detail_chunks[0]);
-
-    if let Some((lower, upper, pos, ratio)) = gauge_info {
-        let gauge_label = format!("{pos:.4}");
-        let gauge = Gauge::default()
-            .block(
-                Block::default()
-                    .borders(Borders::LEFT | Borders::RIGHT)
-                    .border_style(border_style),
-            )
-            .gauge_style(Style::default().fg(Color::Cyan))
-            .label(gauge_label)
-            .ratio(ratio);
-        f.render_widget(gauge, detail_chunks[1]);
-
-        // Limits labels
-        let limits_line = Line::from(vec![
-            Span::styled(format!(" {lower:.2}"), Style::default().fg(Color::DarkGray)),
-            Span::raw(" ".repeat(detail_chunks[1].width.saturating_sub(16).into())),
-            Span::styled(format!("{upper:.2} "), Style::default().fg(Color::DarkGray)),
-        ]);
-        let limits_para = Paragraph::new(limits_line).block(
-            Block::default()
-                .borders(Borders::LEFT | Borders::RIGHT)
-                .border_style(border_style),
+        } else {
+            Layout::vertical([
+                Constraint::Min(4),
+                Constraint::Length((left.height / 3).min(state.poses.len() as u16 + 1).max(2)),
+            ])
+            .areas(left)
+        };
+        let focused = state.active_pane == Pane::Left && state.joint_focus == JointFocus::JointList;
+        let items: Vec<_> = state
+            .joints
+            .iter()
+            .map(|j| ListItem::new(j.info.name.clone()))
+            .collect();
+        super::list(
+            f,
+            state,
+            "joints",
+            List::new(items).block(style::pane("JOINTS · o poses", focused)),
+            joints,
+            state.joint_selected,
+            focused,
         );
-        f.render_widget(
-            limits_para,
-            Rect {
-                y: detail_chunks[1].y + detail_chunks[1].height,
-                height: 1.min(detail_chunks[2].height),
-                ..detail_chunks[1]
-            },
+        let focused = state.active_pane == Pane::Left && state.joint_focus == JointFocus::PoseList;
+        let items: Vec<_> = state
+            .poses
+            .iter()
+            .map(|p| ListItem::new(p.name.clone()))
+            .collect();
+        super::list(
+            f,
+            state,
+            "poses",
+            List::new(items).block(style::pane("POSES · j joints", focused)),
+            poses,
+            state.pose_selected,
+            focused,
         );
     }
-
-    // Remaining content
-    if content_lines.len() > 5 {
-        let remaining = Paragraph::new(content_lines[5..].to_vec()).block(
-            Block::default()
-                .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-                .border_style(border_style),
+    if !right.is_empty() {
+        draw_detail(f, state, right);
+    }
+    if state.pose_confirming {
+        f.render_widget(Clear, area);
+        let name = state
+            .poses
+            .get(state.pose_selected)
+            .map(|p| p.name.as_str())
+            .unwrap_or("?");
+        f.render_widget(
+            Paragraph::new(format!(
+                "Execute pose '{name}'?\n\nEnter/y confirms · Esc cancels"
+            ))
+            .wrap(Wrap { trim: false })
+            .block(style::pane("CONFIRM POSE", true)),
+            area,
         );
-        f.render_widget(remaining, detail_chunks[2]);
     }
 }
 
-fn draw_pose_confirm(f: &mut Frame, state: &AppState, area: Rect) {
-    if !state.pose_confirming {
+fn draw_detail(f: &mut Frame, state: &AppState, area: Rect) {
+    let focused = state.active_pane == Pane::Right;
+    let Some(joint) = state.joints.get(state.joint_selected) else {
+        f.render_widget(
+            Paragraph::new(state.joint_status.as_deref().unwrap_or("No joint selected"))
+                .style(
+                    state
+                        .joint_status
+                        .as_deref()
+                        .map(style::status)
+                        .unwrap_or(style::PRIMARY),
+                )
+                .wrap(Wrap { trim: false })
+                .block(style::pane("JOINT / COMMAND", focused)),
+            area,
+        );
         return;
+    };
+    let (unit, velocity_unit, effort_unit) = match joint.info.joint_type {
+        JointType::Prismatic => ("m", "m/s", "N"),
+        JointType::Revolute | JointType::Continuous => ("rad", "rad/s", "N·m"),
+        _ => ("", "", ""),
+    };
+    let measured = joint.position.filter(|p| p.is_finite());
+    let position = measured
+        .map(|p| format!("{p:.4} {unit}"))
+        .unwrap_or_else(|| "No telemetry".into());
+    let mut lines = vec![Line::from(format!("Measured: {position}"))];
+    if let Some(target) = state.joint_targets.get(&joint.info.name) {
+        lines.push(Line::from(format!("Requested target: {target:.4} {unit}")));
+    } else {
+        lines.push(Line::styled("Requested target: —", style::SECONDARY));
     }
-    let pose_name = state
-        .poses
-        .get(state.pose_selected)
-        .map(|p| p.name.as_str())
-        .unwrap_or("?");
-
-    let text = vec![
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  Execute pose ", Style::default().fg(Color::Yellow)),
-            Span::styled(
-                pose_name,
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("?", Style::default().fg(Color::Yellow)),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  [y/Enter] confirm  [any] cancel",
-            Style::default().fg(Color::DarkGray),
-        )),
-    ];
-
-    let width = 44.min(area.width);
-    let height = 6.min(area.height);
-    let x = area.x + (area.width.saturating_sub(width)) / 2;
-    let y = area.y + (area.height.saturating_sub(height)) / 2;
-    let popup_area = Rect::new(x, y, width, height);
-
-    let popup = Paragraph::new(text).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" CONFIRM ")
-            .border_style(Style::default().fg(Color::Yellow)),
+    if state.editing_joint {
+        lines.push(Line::from(format!(
+            "New target ({unit}): {}▏",
+            state.joint_input
+        )));
+        if let Some(error) = &state.joint_input_error {
+            lines.push(Line::styled(error.as_str(), style::ERROR));
+        }
+    }
+    if let Some(status) = &state.joint_status {
+        lines.push(Line::styled(status.as_str(), style::status(status)));
+    }
+    if let Some(limits) = &joint.info.limits {
+        lines.push(Line::from(format!(
+            "Limits: {:.4} … {:.4} {unit}",
+            limits.lower, limits.upper
+        )));
+    } else {
+        lines.push(Line::styled("Limits: unbounded", style::SECONDARY));
+    }
+    lines.push(Line::from(format!(
+        "Velocity: {}",
+        joint
+            .velocity
+            .filter(|v| v.is_finite())
+            .map(|v| format!("{v:.4} {velocity_unit}"))
+            .unwrap_or_else(|| "No telemetry".into())
+    )));
+    lines.push(Line::from(format!(
+        "Effort: {}",
+        joint
+            .effort
+            .filter(|v| v.is_finite())
+            .map(|v| format!("{v:.4} {effort_unit}"))
+            .unwrap_or_else(|| "No telemetry".into())
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::styled(
+        format!("Type: {:?}", joint.info.joint_type),
+        style::SECONDARY,
+    ));
+    lines.push(Line::styled(
+        format!("Parent: {}", joint.info.parent_link),
+        style::SECONDARY,
+    ));
+    lines.push(Line::styled(
+        format!("Child: {}", joint.info.child_link),
+        style::SECONDARY,
+    ));
+    let ratio = measured
+        .zip(joint.info.limits.as_ref())
+        .and_then(|(pos, limits)| {
+            let range = limits.upper - limits.lower;
+            (range.is_finite() && range > 0.0 && limits.lower.is_finite())
+                .then(|| ((pos - limits.lower) / range).clamp(0.0, 1.0))
+        });
+    let [body, gauge] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(if ratio.is_some() && area.height >= 12 {
+            1
+        } else {
+            0
+        }),
+    ])
+    .areas(area);
+    super::scroll_text(
+        f,
+        state,
+        "joint-detail",
+        format!("JOINT {}", joint.info.name),
+        lines,
+        body,
+        focused,
     );
-    f.render_widget(ratatui::widgets::Clear, popup_area);
-    f.render_widget(popup, popup_area);
+    if let Some(ratio) = ratio {
+        f.render_widget(
+            Gauge::default()
+                .ratio(ratio)
+                .label(format!("Measured {position}"))
+                .gauge_style(style::SECONDARY),
+            gauge,
+        );
+    }
 }

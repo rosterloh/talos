@@ -1,199 +1,167 @@
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Sparkline};
-
+use super::style;
 use crate::state::{AppState, Pane, TopicEndpoints, TopicSubscriptionState};
+use ratatui::{
+    Frame,
+    layout::{Constraint, Layout, Rect},
+    text::{Line, Span},
+    widgets::{Cell, List, ListItem, Paragraph, Row, Sparkline, Table},
+};
 use talos_common::protocol::types::{DynValue, EndpointInfo};
 
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
-        .split(area);
-
-    draw_topic_list(f, state, chunks[0]);
-    draw_topic_detail(f, state, chunks[1]);
-}
-
-fn draw_topic_list(f: &mut Frame, state: &AppState, area: Rect) {
+    let [left, right] = super::panes(area, state.active_pane);
+    let focused = state.active_pane == Pane::Left;
     let now = std::time::Instant::now();
-    let items: Vec<ListItem> = state
+    let rows: Vec<_> = state
         .filtered_topic_names()
-        .into_iter()
-        .enumerate()
-        .map(|(i, name)| {
-            let hz_str = state
-                .topics
-                .get(name)
-                .map(|t| {
-                    let hz = t.current_stats(now).map_or(0.0, |s| s.rate_hz);
-                    if hz > 0.5 {
-                        format!("{hz:>5.0}Hz")
-                    } else if t.msg_count > 0 {
-                        "latch".to_string()
-                    } else {
-                        "  -  ".to_string()
-                    }
-                })
-                .unwrap_or_else(|| "  -  ".to_string());
-            let (subscription_badge, subscription_style) = state
-                .topics
-                .get(name)
-                .map(subscription_badge)
-                .unwrap_or(("[OFF]", Style::default().fg(Color::DarkGray)));
-
-            let marker = if i == state.topic_selected {
-                "▶ "
-            } else {
-                "  "
-            };
-            let style = if i == state.topic_selected {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-
-            ListItem::new(Line::from(vec![
-                Span::styled(marker, style),
-                Span::styled(subscription_badge, subscription_style),
-                Span::raw(" "),
-                Span::styled(name, style),
-                Span::styled(format!("  {hz_str}"), Style::default().fg(Color::DarkGray)),
-            ]))
+        .iter()
+        .map(|name| {
+            let topic = &state.topics[*name];
+            let rate = topic
+                .current_stats(now)
+                .map(|s| format!("{:.0}Hz", s.rate_hz))
+                .unwrap_or_else(|| "—".into());
+            let (badge, badge_style) = subscription_badge(topic);
+            Row::new(vec![
+                Cell::from(badge).style(badge_style),
+                Cell::from(name.to_string()),
+                Cell::from(rate).style(style::SECONDARY),
+            ])
         })
         .collect();
-
-    let border_style = if state.active_pane == Pane::Left {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(super::filter_title(" TOPICS ".into(), &state.topic_filter))
-            .border_style(border_style),
+    super::table(
+        f,
+        state,
+        "topics",
+        Table::new(
+            rows,
+            [
+                Constraint::Length(5),
+                Constraint::Min(1),
+                Constraint::Length(6),
+            ],
+        )
+        .header(Row::new(["Sub", "Topic", "Rate"]).style(style::SECONDARY))
+        .block(style::pane(
+            super::filter_title("TOPICS".into(), &state.topic_filter),
+            focused,
+        )),
+        left,
+        state.topic_selected,
+        focused,
     );
-
-    // A fresh state each frame is enough: ratatui scrolls to keep the selection visible.
-    let mut list_state = ListState::default().with_selected(Some(state.topic_selected));
-    f.render_stateful_widget(list, area, &mut list_state);
-}
-
-fn draw_topic_detail(f: &mut Frame, state: &AppState, area: Rect) {
-    let border_style = if state.active_pane == Pane::Right {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-
-    let selected_topic = state
+    if right.is_empty() {
+        return;
+    }
+    let Some(topic) = state
         .selected_topic_name()
-        .and_then(|name| state.topics.get(&name));
-
-    let (title, lines) = if let Some(topic) = selected_topic {
-        let type_short = topic
-            .info
-            .type_name
-            .rsplit('/')
-            .next()
-            .unwrap_or(&topic.info.type_name);
-        let now = std::time::Instant::now();
-        let hz = topic.current_stats(now).map_or(0.0, |s| s.rate_hz);
-        let hz_str = if hz > 0.5 {
-            format!(" @ {hz:.0}Hz")
-        } else {
-            String::new()
-        };
-        let title = format!(" DETAIL: {} ", topic.info.name);
-
-        let mut lines = vec![Line::from(vec![Span::styled(
-            format!("{type_short}{hz_str}"),
-            Style::default().fg(Color::DarkGray),
-        )])];
-        if let Some(stats) = topic.current_stats(now) {
-            let latency = stats
-                .latency_ms
-                .map_or_else(|| "-".to_string(), |ms| format!("{ms:.1} ms"));
-            lines.push(Line::from(vec![
-                Span::styled("Agent: ", Style::default().fg(Color::DarkGray)),
-                Span::raw(format!(
-                    "{:.1} Hz  {}  latency {latency}",
-                    stats.rate_hz,
-                    format_bandwidth(stats.bandwidth_bps)
-                )),
-            ]));
-        }
+        .and_then(|name| state.topics.get(&name))
+    else {
+        f.render_widget(
+            Paragraph::new("No topic selected").block(style::pane("PAYLOAD", !focused)),
+            right,
+        );
+        return;
+    };
+    let mut summary = vec![Line::from(vec![
+        Span::raw("Subscription: "),
+        Span::styled(topic.subscription.label(), subscription_badge(topic).1),
+    ])];
+    if let Some(error) = &topic.subscription_error {
+        summary.push(Line::styled(error.as_str(), style::ERROR));
+    }
+    if right.height >= 12 {
+        summary.push(Line::styled(
+            topic.info.type_name.as_str(),
+            style::SECONDARY,
+        ));
+    }
+    if let Some(stats) = topic.current_stats(now) {
+        let latency = stats
+            .latency_ms
+            .map_or_else(|| "-".into(), |ms| format!("{ms:.1} ms"));
+        summary.push(Line::from(format!(
+            "Agent: {:.1} Hz  {}  latency {latency}",
+            stats.rate_hz,
+            format_bandwidth(stats.bandwidth_bps)
+        )));
+    }
+    let show_spark = right.height >= 16 && topic.rate_history.len() > 1 && !state.show_endpoints;
+    let [summary_area, body, spark] = Layout::vertical([
+        Constraint::Length((summary.len() as u16 + 1).min(right.height.saturating_sub(3))),
+        Constraint::Min(0),
+        Constraint::Length(if show_spark { 2 } else { 0 }),
+    ])
+    .areas(right);
+    f.render_widget(
+        Paragraph::new(summary).block(style::pane(format!("TOPIC {}", topic.info.name), false)),
+        summary_area,
+    );
+    if state.show_endpoints {
+        let mut lines = Vec::new();
         if let Some(endpoints) = state
             .topic_endpoints
             .as_ref()
             .filter(|e| e.topic == topic.info.name)
         {
             push_endpoint_lines(&mut lines, endpoints);
-        }
-        let (_, subscription_style) = subscription_badge(topic);
-        lines.push(Line::from(vec![
-            Span::styled("Subscription: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(topic.subscription.label(), subscription_style),
-        ]));
-        if let Some(error) = &topic.subscription_error {
-            lines.push(Line::from(vec![
-                Span::styled("Last error: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(error.clone(), Style::default().fg(Color::Red)),
-            ]));
-        }
-        lines.push(Line::from(""));
-
-        if let Some(ref data) = topic.latest {
-            render_dynvalue(data, &mut lines, 0, &topic.info.name, state);
         } else {
-            lines.push(Line::from(Span::styled(
-                "No data received yet",
-                Style::default().fg(Color::DarkGray),
-            )));
+            lines.push(Line::from("Waiting for endpoint information"));
         }
-
-        (title, lines)
+        super::scroll_text(
+            f,
+            state,
+            &format!("qos:{}", topic.info.name),
+            "ENDPOINTS / QoS · i payload",
+            lines,
+            body,
+            !focused,
+        );
     } else {
-        (
-            " DETAIL ".to_string(),
-            vec![Line::from("No topic selected")],
-        )
-    };
-
-    let paragraph = Paragraph::new(lines).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(border_style),
-    );
-
-    let history: Vec<u64> = selected_topic
-        .map(|t| t.rate_history.iter().copied().collect())
-        .unwrap_or_default();
-    if history.len() < 2 {
-        f.render_widget(paragraph, area);
-        return;
+        let rows = state.tree_rows();
+        let selected = state.tree_index(&rows);
+        let items: Vec<_> = rows
+            .iter()
+            .map(|row| {
+                let arrow = if row.branch {
+                    if row.expanded { "v" } else { ">" }
+                } else {
+                    " "
+                };
+                ListItem::new(format!(
+                    "{}{} {}: {}",
+                    "  ".repeat(row.depth),
+                    arrow,
+                    row.label,
+                    format_value(row.value)
+                ))
+            })
+            .collect();
+        let list = if rows.is_empty() {
+            List::new(vec![ListItem::new("No data received yet")])
+        } else {
+            List::new(items)
+        };
+        super::list(
+            f,
+            state,
+            &format!("tree:{}", topic.info.name),
+            list.block(style::pane("PAYLOAD · i endpoints/QoS", !focused)),
+            body,
+            selected,
+            !focused,
+        );
     }
-
-    let [detail_area, spark_area] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(5)]).areas(area);
-    f.render_widget(paragraph, detail_area);
-    let sparkline = Sparkline::default()
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" rate, last {}s ", history.len()))
-                .border_style(border_style),
-        )
-        .data(&history)
-        .style(Style::default().fg(Color::Cyan));
-    f.render_widget(sparkline, spark_area);
+    if show_spark {
+        let history: Vec<_> = topic.rate_history.iter().copied().collect();
+        f.render_widget(
+            Sparkline::default()
+                .data(&history)
+                .style(style::SECONDARY)
+                .block(style::pane(format!("rate, last {}s", history.len()), false)),
+            spark,
+        );
+    }
 }
 
 /// Publisher and subscriber QoS, with subscribers that can't be matched to a
@@ -206,7 +174,7 @@ fn push_endpoint_lines(lines: &mut Vec<Line<'static>>, endpoints: &TopicEndpoint
             format!("{}/{}", e.node_namespace.trim_end_matches('/'), e.node_name)
         }
     };
-    let dim = Style::default().fg(Color::DarkGray);
+    let dim = style::SECONDARY;
 
     lines.push(Line::from(Span::styled(
         format!("Publishers ({}):", endpoints.publishers.len()),
@@ -231,7 +199,7 @@ fn push_endpoint_lines(lines: &mut Vec<Line<'static>>, endpoints: &TopicEndpoint
             if let Some(reason) = publisher.qos.incompatibility_with(&subscriber.qos) {
                 lines.push(Line::from(Span::styled(
                     format!("    ⚠ no match with {}: {reason}", label(publisher)),
-                    Style::default().fg(Color::Red),
+                    style::ERROR,
                 )));
             }
         }
@@ -245,81 +213,6 @@ fn format_bandwidth(bytes_per_sec: f64) -> String {
         format!("{:.1} KB/s", bytes_per_sec / 1024.0)
     } else {
         format!("{bytes_per_sec:.0} B/s")
-    }
-}
-
-fn render_dynvalue(
-    value: &DynValue,
-    lines: &mut Vec<Line<'static>>,
-    indent: usize,
-    path: &str,
-    state: &AppState,
-) {
-    let pad = "  ".repeat(indent);
-    match value {
-        DynValue::Struct {
-            type_name: _,
-            fields,
-        } => {
-            for (name, val) in fields {
-                let field_path = format!("{path}.{name}");
-                match val {
-                    DynValue::Struct { .. } => {
-                        let expanded = state
-                            .tree_expanded
-                            .get(&field_path)
-                            .copied()
-                            .unwrap_or(false);
-                        let arrow = if expanded { "▼" } else { "▶" };
-                        lines.push(Line::from(vec![
-                            Span::raw(format!("{pad}  ")),
-                            Span::styled(format!("{arrow} "), Style::default().fg(Color::Yellow)),
-                            Span::styled(name.clone(), Style::default().fg(Color::White)),
-                        ]));
-                        if expanded {
-                            render_dynvalue(val, lines, indent + 2, &field_path, state);
-                        }
-                    }
-                    DynValue::Array(arr)
-                        if arr.iter().any(|v| matches!(v, DynValue::Struct { .. })) =>
-                    {
-                        let expanded = state
-                            .tree_expanded
-                            .get(&field_path)
-                            .copied()
-                            .unwrap_or(false);
-                        let arrow = if expanded { "▼" } else { "▶" };
-                        lines.push(Line::from(vec![
-                            Span::raw(format!("{pad}  ")),
-                            Span::styled(format!("{arrow} "), Style::default().fg(Color::Yellow)),
-                            Span::styled(
-                                format!("{name} [{} items]", arr.len()),
-                                Style::default().fg(Color::White),
-                            ),
-                        ]));
-                        if expanded {
-                            for (i, item) in arr.iter().enumerate() {
-                                let item_path = format!("{field_path}[{i}]");
-                                render_dynvalue(item, lines, indent + 2, &item_path, state);
-                            }
-                        }
-                    }
-                    _ => {
-                        lines.push(Line::from(vec![
-                            Span::raw(format!("{pad}    ")),
-                            Span::styled(format!("{name}: "), Style::default().fg(Color::DarkGray)),
-                            Span::styled(format_value(val), Style::default().fg(Color::Green)),
-                        ]));
-                    }
-                }
-            }
-        }
-        _ => {
-            lines.push(Line::from(vec![
-                Span::raw(format!("{pad}  ")),
-                Span::styled(format_value(value), Style::default().fg(Color::Green)),
-            ]));
-        }
     }
 }
 
@@ -356,13 +249,13 @@ fn format_value(value: &DynValue) -> String {
     }
 }
 
-fn subscription_badge(topic: &crate::state::TopicData) -> (&'static str, Style) {
+fn subscription_badge(topic: &crate::state::TopicData) -> (&'static str, ratatui::style::Style) {
     match topic.subscription {
-        TopicSubscriptionState::Subscribed => ("[ON ]", Style::default().fg(Color::Green)),
-        TopicSubscriptionState::Unsubscribed => ("[OFF]", Style::default().fg(Color::DarkGray)),
-        TopicSubscriptionState::PendingSubscribe => ("[+..]", Style::default().fg(Color::Yellow)),
-        TopicSubscriptionState::PendingUnsubscribe => ("[-..]", Style::default().fg(Color::Yellow)),
-        TopicSubscriptionState::Error => ("[ERR]", Style::default().fg(Color::Red)),
+        TopicSubscriptionState::Subscribed => ("[ON ]", style::SUCCESS),
+        TopicSubscriptionState::Unsubscribed => ("[OFF]", style::SECONDARY),
+        TopicSubscriptionState::PendingSubscribe => ("[+..]", style::WARNING),
+        TopicSubscriptionState::PendingUnsubscribe => ("[-..]", style::WARNING),
+        TopicSubscriptionState::Error => ("[ERR]", style::ERROR),
     }
 }
 
@@ -412,7 +305,12 @@ pub(crate) mod tests {
         }
 
         let screen = render(&state);
-        assert!(screen.contains("/scan     10Hz"), "{screen}");
+        assert!(
+            screen
+                .lines()
+                .any(|line| line.contains("/scan") && line.contains("10Hz")),
+            "{screen}"
+        );
         assert!(
             screen.contains("Agent: 10.2 Hz  2.0 KB/s  latency 3.5 ms"),
             "{screen}"
@@ -423,7 +321,12 @@ pub(crate) mod tests {
     #[test]
     fn topic_without_stats_renders_placeholder_rate() {
         let screen = render(&state_with_topic("/scan"));
-        assert!(screen.contains("/scan    -"), "{screen}");
+        assert!(
+            screen
+                .lines()
+                .any(|line| line.contains("/scan") && line.contains('—')),
+            "{screen}"
+        );
         assert!(!screen.contains("Agent:"), "{screen}");
     }
 
@@ -444,6 +347,7 @@ pub(crate) mod tests {
             },
         };
         let mut state = state_with_topic("/scan");
+        state.show_endpoints = true;
         state.handle_response(Response::TopicEndpoints {
             topic: "/scan".into(),
             publishers: vec![endpoint("lidar", Reliability::BestEffort)],
@@ -469,6 +373,7 @@ pub(crate) mod tests {
     #[test]
     fn endpoints_for_another_topic_are_not_shown() {
         let mut state = state_with_topic("/scan");
+        state.show_endpoints = true;
         state.handle_response(Response::TopicEndpoints {
             topic: "/other".into(),
             publishers: vec![],

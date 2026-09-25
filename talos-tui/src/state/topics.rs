@@ -137,8 +137,15 @@ impl AppState {
             self.desired_subscriptions = next_topic_names.iter().cloned().collect();
         }
         self.topics = next_topics;
-        self.tree_expanded
-            .retain(|topic_name, _| self.topics.contains_key(topic_name));
+        self.tree_expanded.retain(|path, _| {
+            self.topics.keys().any(|topic| {
+                path == topic
+                    || path.starts_with(&format!("{topic}."))
+                    || path.starts_with(&format!("{topic}["))
+            })
+        });
+        self.tree_selection
+            .retain(|topic, _| self.topics.contains_key(topic));
         self.replace_topic_names(next_topic_names);
     }
 

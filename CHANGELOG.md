@@ -7,6 +7,29 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Changed
+
+- Rework the native TUI as a restrained instrument console with shared semantic
+  styles, full-row selection, explicit focus markers, simpler borders, bounded
+  navigators, single-pane narrow layouts, contextual footers and scrollable help.
+- Add selected-field navigation through nested topic payloads and arrays,
+  expandable endpoint/QoS details, namespace-aware node lists and scrollable
+  node details. Keep selection and viewport state across redraws and resizing.
+- Prioritize log message width, add scrollable full-message snapshots and
+  explicit LIVE/PAUSED controls that preserve inspected entries.
+- Lead joint details with measured values, units, limits and requested targets;
+  distinguish pending commands from publication acknowledgements. Parameter
+  editing shows type/current value and preserves rejected input for retry.
+
+### Fixed
+
+- Keep DEBUG logs readable when selected, retain topic-tree expansion across
+  catalog refreshes, and clamp paused log selection when old entries expire.
+- Never render missing/nonfinite joint telemetry as zero or shift measurements
+  between joints when a telemetry array contains an invalid element.
+- Preserve parameter errors after refresh, block duplicate pending commands,
+  and report unknown outcomes when a connection is lost during a request.
+
 ## [1.0.1] - 2026-09-24
 
 ### Added

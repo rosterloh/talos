@@ -54,13 +54,20 @@ impl AppState {
     pub(crate) fn push_log_entry_from_data(&mut self, data: &DynValue) {
         if let Some(entry) = extract_log_entry(data) {
             // Newest entries go on top; keep the highlight on the same entry.
-            if self.log_selected > 0 && self.log_entry_visible(&entry) {
+            if (!self.log_live || self.log_selected > 0)
+                && !self.filtered_log_entries().is_empty()
+                && self.log_entry_visible(&entry)
+            {
                 self.log_selected += 1;
+                if let Some(viewport) = self.tables.get_mut().get_mut("logs") {
+                    *viewport.offset_mut() = viewport.offset().saturating_add(1);
+                }
             }
             self.log_entries.push_front(entry);
             while self.log_entries.len() > self.log_max_entries {
                 self.log_entries.pop_back();
             }
+            self.clamp_log_selection();
         }
     }
 
@@ -186,5 +193,40 @@ mod tests {
         state.log_severity_filter = LogLevel::Warn;
         state.clamp_log_selection();
         assert_eq!(state.log_selected, 0);
+    }
+
+    #[test]
+    fn pause_at_newest_preserves_entry_and_eviction_clamps_selection() {
+        let mut state = AppState {
+            log_live: false,
+            log_max_entries: 2,
+            ..Default::default()
+        };
+        state.push_log_entry_from_data(&log("INFO"));
+        state.push_log_entry_from_data(&log("WARN"));
+        assert_eq!(state.log_selected, 1);
+        assert_eq!(
+            state.filtered_log_entries()[state.log_selected].level,
+            "INFO"
+        );
+        state.push_log_entry_from_data(&log("ERROR"));
+        assert_eq!(state.log_selected, 1);
+        assert_eq!(
+            state.filtered_log_entries()[state.log_selected].level,
+            "WARN"
+        );
+    }
+
+    #[test]
+    fn filtered_out_arrival_does_not_move_paused_selection() {
+        let mut state = AppState {
+            log_live: false,
+            log_severity_filter: LogLevel::Warn,
+            ..Default::default()
+        };
+        state.push_log_entry_from_data(&log("WARN"));
+        state.push_log_entry_from_data(&log("INFO"));
+        assert_eq!(state.log_selected, 0);
+        assert_eq!(state.filtered_log_entries()[0].level, "WARN");
     }
 }

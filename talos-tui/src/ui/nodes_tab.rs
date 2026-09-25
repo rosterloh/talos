@@ -1,179 +1,84 @@
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
-
+use super::style;
+use crate::state::{AppState, Pane, node_fqn};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    text::{Line, Span},
+    widgets::{List, ListItem},
+};
 use talos_common::protocol::types::logger_level_name;
 
-use crate::state::{AppState, Pane, node_fqn};
-
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
-        .split(area);
-
-    draw_node_list(f, state, chunks[0]);
-    draw_node_detail(f, state, chunks[1]);
-}
-
-fn draw_node_list(f: &mut Frame, state: &AppState, area: Rect) {
-    let items: Vec<ListItem> = state
-        .filtered_nodes()
-        .into_iter()
-        .enumerate()
-        .map(|(i, node)| {
-            let marker = if i == state.node_selected {
-                "▶ "
-            } else {
-                "  "
-            };
-            let style = if i == state.node_selected {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(Line::from(Span::styled(
-                format!("{marker}{}", node.name),
-                style,
-            )))
-        })
+    let [left, right] = super::panes(area, state.active_pane);
+    let focused = state.active_pane == Pane::Left;
+    let nodes = state.filtered_nodes();
+    let items: Vec<_> = nodes
+        .iter()
+        .map(|node| ListItem::new(node_fqn(node)))
         .collect();
-
-    let border_style = if state.active_pane == Pane::Left {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(super::filter_title(" NODES ".into(), &state.node_filter))
-            .border_style(border_style),
+    super::list(
+        f,
+        state,
+        "nodes",
+        List::new(items).block(style::pane(
+            super::filter_title("NODES".into(), &state.node_filter),
+            focused,
+        )),
+        left,
+        state.node_selected,
+        focused,
     );
-
-    // A fresh state each frame is enough: ratatui scrolls to keep the selection visible.
-    let mut list_state = ListState::default().with_selected(Some(state.node_selected));
-    f.render_stateful_widget(list, area, &mut list_state);
-}
-
-fn draw_node_detail(f: &mut Frame, state: &AppState, area: Rect) {
-    let border_style = if state.active_pane == Pane::Right {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
+    let Some(node) = nodes.get(state.node_selected) else {
+        super::scroll_text(
+            f,
+            state,
+            "node:empty",
+            "NODE",
+            vec![Line::from("No node selected")],
+            right,
+            !focused,
+        );
+        return;
     };
-
-    let (title, lines) = if let Some(node) = state.filtered_nodes().get(state.node_selected) {
-        let title = format!(" NODE: {} ", node.name);
-        let mut lines = vec![
-            Line::from(vec![
-                Span::styled("Namespace: ", Style::default().fg(Color::DarkGray)),
-                Span::raw(&node.namespace),
-            ]),
-            logger_line(state, &node_fqn(node)),
-            Line::from(""),
-        ];
-
-        lines.push(Line::from(Span::styled(
-            "Publishers:",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )));
-        if node.publishers.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  (none)",
-                Style::default().fg(Color::DarkGray),
-            )));
-        } else {
-            for pub_topic in &node.publishers {
-                lines.push(Line::from(Span::styled(
-                    format!("  {pub_topic}"),
-                    Style::default().fg(Color::Green),
-                )));
-            }
-        }
-
+    let fqn = node_fqn(node);
+    let mut lines = vec![logger_line(state, &fqn)];
+    for (label, items) in [
+        ("Publishers", &node.publishers),
+        ("Subscribers", &node.subscribers),
+        ("Services", &node.services),
+    ] {
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "Subscribers:",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )));
-        if node.subscribers.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  (none)",
-                Style::default().fg(Color::DarkGray),
-            )));
-        } else {
-            for sub_topic in &node.subscribers {
-                lines.push(Line::from(Span::styled(
-                    format!("  {sub_topic}"),
-                    Style::default().fg(Color::Yellow),
-                )));
-            }
+        lines.push(Line::styled(
+            format!("{label} ({})", items.len()),
+            style::SECONDARY,
+        ));
+        lines.extend(items.iter().map(|s| Line::from(s.as_str())));
+        if items.is_empty() {
+            lines.push(Line::styled("(none)", style::SECONDARY));
         }
-
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "Services:",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )));
-        if node.services.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  (none)",
-                Style::default().fg(Color::DarkGray),
-            )));
-        } else {
-            for svc in &node.services {
-                lines.push(Line::from(Span::styled(
-                    format!("  {svc}"),
-                    Style::default().fg(Color::Magenta),
-                )));
-            }
-        }
-
-        (title, lines)
-    } else {
-        (" NODE ".to_string(), vec![Line::from("No node selected")])
-    };
-
-    let paragraph = Paragraph::new(lines).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(border_style),
+    }
+    super::scroll_text(
+        f,
+        state,
+        &state.node_scroll_key(),
+        format!("NODE {fqn}"),
+        lines,
+        right,
+        !focused,
     );
-
-    f.render_widget(paragraph, area);
 }
 
 fn logger_line(state: &AppState, fqn: &str) -> Line<'static> {
-    let label = Span::styled("Logger:    ", Style::default().fg(Color::DarkGray));
     if state.logger_node.as_deref() != Some(fqn) {
-        return Line::from(vec![
-            label,
-            Span::styled("press l to load", Style::default().fg(Color::DarkGray)),
-        ]);
+        return Line::styled("Logger: press l to load", style::SECONDARY);
     }
-    let level = match state.logger_level {
-        Some(level) => logger_level_name(level).map_or_else(|| level.to_string(), str::to_string),
-        None => "loading...".to_string(),
-    };
-    let mut spans = vec![label, Span::raw(level)];
+    let level = state
+        .logger_level
+        .map(|l| logger_level_name(l).map_or_else(|| l.to_string(), str::to_string))
+        .unwrap_or_else(|| "loading…".into());
+    let mut spans = vec![Span::raw(format!("Logger: {level}"))];
     if let Some(status) = &state.logger_status {
-        spans.push(Span::styled(
-            format!("  ({status})"),
-            Style::default().fg(Color::Red),
-        ));
+        spans.push(Span::styled(format!("  {status}"), style::status(status)));
     }
     Line::from(spans)
 }

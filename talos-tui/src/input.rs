@@ -1,11 +1,9 @@
 mod filter;
 mod params;
 
-use std::collections::HashMap;
-
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use talos_common::protocol::messages::Request;
-use talos_common::protocol::types::{DynValue, LOGGER_LEVELS};
+use talos_common::protocol::types::LOGGER_LEVELS;
 use tokio::sync::mpsc;
 
 use crate::state::{AppState, JointFocus, LogLevel, Pane, Tab, node_fqn};
@@ -22,7 +20,17 @@ pub fn handle_key_event(
     key: KeyEvent,
 ) -> AppAction {
     if state.show_help {
-        state.show_help = false;
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('?') => state.show_help = false,
+            KeyCode::Up => state.scroll_by("help", -1),
+            KeyCode::Down => state.scroll_by("help", 1),
+            KeyCode::PageUp => state.scroll_by("help", -10),
+            KeyCode::PageDown => state.scroll_by("help", 10),
+            KeyCode::Home => {
+                state.scroll.borrow_mut().insert("help".into(), 0);
+            }
+            _ => {}
+        }
         return AppAction::Continue;
     }
 
@@ -47,9 +55,41 @@ pub fn handle_key_event(
     }
 
     match key.code {
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => AppAction::Quit,
+        KeyCode::Esc => {
+            if state.active_tab == Tab::Log {
+                state.log_expanded = false;
+            } else {
+                state.active_pane = Pane::Left;
+            }
+            AppAction::Continue
+        }
+        KeyCode::PageUp | KeyCode::PageDown => {
+            let delta = if key.code == KeyCode::PageUp { -10 } else { 10 };
+            if state.active_tab == Tab::Params && state.active_pane == Pane::Right {
+                state.scroll_by("param-status", delta);
+            } else {
+                scroll_detail(state, delta);
+            }
+            AppAction::Continue
+        }
+        KeyCode::Char('i') if state.active_tab == Tab::Topics => {
+            state.show_endpoints = !state.show_endpoints;
+            state.active_pane = Pane::Right;
+            AppAction::Continue
+        }
+        KeyCode::Char(' ') if state.active_tab == Tab::Log => {
+            state.log_live = !state.log_live;
+            if state.log_live {
+                state.log_selected = 0;
+                state.log_expanded = false;
+            }
+            AppAction::Continue
+        }
         KeyCode::Char('q') => AppAction::Quit,
         KeyCode::Char('?') => {
             state.show_help = true;
+            state.scroll.borrow_mut().insert("help".into(), 0);
             AppAction::Continue
         }
         KeyCode::Char('r') => {
@@ -81,7 +121,7 @@ pub fn handle_key_event(
             state.active_tab = Tab::Params;
             AppAction::Continue
         }
-        KeyCode::Tab => {
+        KeyCode::Tab | KeyCode::BackTab => {
             state.active_pane = match state.active_pane {
                 Pane::Left => Pane::Right,
                 Pane::Right => Pane::Left,
@@ -130,17 +170,21 @@ pub fn handle_key_event(
         }
         KeyCode::Char('j') if state.active_tab == Tab::Joints => {
             state.joint_focus = JointFocus::JointList;
+            state.active_pane = Pane::Left;
             AppAction::Continue
         }
         KeyCode::Char('o') if state.active_tab == Tab::Joints => {
             state.joint_focus = JointFocus::PoseList;
+            state.active_pane = Pane::Left;
             AppAction::Continue
         }
         KeyCode::Char('e')
             if state.active_tab == Tab::Joints && state.joint_focus == JointFocus::JointList =>
         {
-            if !state.joints.is_empty() {
+            if !state.joints.is_empty() && !state.joint_pending {
                 state.editing_joint = true;
+                state.active_pane = Pane::Right;
+                state.scroll.borrow_mut().insert("joint-detail".into(), 0);
                 state.joint_input.clear();
                 state.joint_input_error = None;
             }
@@ -149,7 +193,7 @@ pub fn handle_key_event(
         KeyCode::Char('x')
             if state.active_tab == Tab::Joints && state.joint_focus == JointFocus::PoseList =>
         {
-            if !state.poses.is_empty() {
+            if !state.poses.is_empty() && !state.joint_pending {
                 state.pose_confirming = true;
             }
             AppAction::Continue
@@ -168,6 +212,8 @@ fn handle_joint_edit_key(
     key: KeyEvent,
 ) {
     match key.code {
+        KeyCode::PageUp => state.scroll_by("joint-detail", -1),
+        KeyCode::PageDown => state.scroll_by("joint-detail", 1),
         KeyCode::Esc => {
             state.editing_joint = false;
             state.joint_input.clear();
@@ -264,6 +310,10 @@ fn handle_joint_input_submit(state: &mut AppState, cmd_tx: &mpsc::UnboundedSende
             return;
         }
     };
+    if !value.is_finite() {
+        state.joint_input_error = Some("enter a finite number".into());
+        return;
+    }
 
     if let Some(joint) = state.joints.get(state.joint_selected) {
         let (clamped, note) = match joint.info.limits {
@@ -277,12 +327,19 @@ fn handle_joint_input_submit(state: &mut AppState, cmd_tx: &mpsc::UnboundedSende
             ),
             _ => (value, String::new()),
         };
-        state.joint_status = Some(format!("sent {} = {clamped:.4}{note}", joint.info.name));
-
-        let _ = cmd_tx.send(Request::SetJointPosition {
-            joint: joint.info.name.clone(),
-            position: clamped,
-        });
+        if cmd_tx
+            .send(Request::SetJointPosition {
+                joint: joint.info.name.clone(),
+                position: clamped,
+            })
+            .is_err()
+        {
+            state.joint_input_error = Some("error: command channel closed".into());
+            return;
+        }
+        state.joint_targets.insert(joint.info.name.clone(), clamped);
+        state.joint_pending = true;
+        state.joint_status = Some(format!("pending {} = {clamped:.4}{note}", joint.info.name));
 
         state.editing_joint = false;
         state.joint_input.clear();
@@ -291,17 +348,33 @@ fn handle_joint_input_submit(state: &mut AppState, cmd_tx: &mpsc::UnboundedSende
 
 fn handle_pose_confirm(state: &mut AppState, cmd_tx: &mpsc::UnboundedSender<Request>) {
     if let Some(pose) = state.poses.get(state.pose_selected) {
-        let _ = cmd_tx.send(Request::ExecutePose {
-            name: pose.name.clone(),
-        });
-        state.joint_status = Some(format!("sent pose '{}'", pose.name));
+        if cmd_tx
+            .send(Request::ExecutePose {
+                name: pose.name.clone(),
+            })
+            .is_err()
+        {
+            state.joint_status = Some("error: command channel closed".into());
+        } else {
+            state.joint_targets.extend(pose.positions.iter().cloned());
+            state.joint_pending = true;
+            state.joint_status = Some(format!("pending pose '{}'", pose.name));
+        }
     }
     state.pose_confirming = false;
+    state.active_pane = Pane::Right;
+    state.scroll.borrow_mut().insert("joint-detail".into(), 0);
 }
 
 fn handle_up(state: &mut AppState) {
+    if scroll_detail(state, -1) {
+        return;
+    }
     match state.active_tab {
         Tab::Topics => {
+            if state.active_pane == Pane::Right {
+                state.tree_move(-1);
+            }
             if state.active_pane == Pane::Left && state.topic_selected > 0 {
                 state.topic_selected -= 1;
             }
@@ -312,6 +385,7 @@ fn handle_up(state: &mut AppState) {
             }
         }
         Tab::Log => {
+            state.log_live = false;
             if state.log_selected > 0 {
                 state.log_selected -= 1;
             }
@@ -333,8 +407,14 @@ fn handle_up(state: &mut AppState) {
 }
 
 fn handle_down(state: &mut AppState) {
+    if scroll_detail(state, 1) {
+        return;
+    }
     match state.active_tab {
         Tab::Topics => {
+            if state.active_pane == Pane::Right {
+                state.tree_move(1);
+            }
             if state.active_pane == Pane::Left
                 && state.topic_selected + 1 < state.filtered_topic_names().len()
             {
@@ -349,6 +429,7 @@ fn handle_down(state: &mut AppState) {
             }
         }
         Tab::Log => {
+            state.log_live = false;
             let filtered_count = state.filtered_log_entries().len();
             if state.log_selected + 1 < filtered_count {
                 state.log_selected += 1;
@@ -370,67 +451,50 @@ fn handle_down(state: &mut AppState) {
     }
 }
 
-fn handle_left(state: &mut AppState) {
-    if state.active_tab == Tab::Topics
-        && state.active_pane == Pane::Right
-        && let Some(topic_name) = state.selected_topic_name()
-    {
-        let prefix = format!("{topic_name}.");
-        let keys_to_collapse: Vec<String> = state
-            .tree_expanded
-            .keys()
-            .filter(|k| k.starts_with(&prefix))
-            .cloned()
-            .collect();
-        for key in keys_to_collapse {
-            state.tree_expanded.insert(key, false);
+fn scroll_detail(state: &AppState, delta: i16) -> bool {
+    let key = match state.active_tab {
+        Tab::Topics if state.active_pane == Pane::Right && state.show_endpoints => {
+            format!("qos:{}", state.selected_topic_name().unwrap_or_default())
         }
+        Tab::Nodes if state.active_pane == Pane::Right => state.node_scroll_key(),
+        Tab::Joints if state.active_pane == Pane::Right => "joint-detail".into(),
+        Tab::Log if state.log_expanded => "log-message".into(),
+        _ => return false,
+    };
+    state.scroll_by(&key, delta);
+    true
+}
+
+fn handle_left(state: &mut AppState) {
+    if state.active_tab == Tab::Topics && state.active_pane == Pane::Right && !state.show_endpoints
+    {
+        state.tree_toggle(Some(false));
     }
 }
 
 fn handle_right(state: &mut AppState) {
-    if state.active_tab == Tab::Topics
-        && state.active_pane == Pane::Right
-        && let Some(topic_name) = state.selected_topic_name()
-        && let Some(topic_data) = state.topics.get(&topic_name)
-        && let Some(ref data) = topic_data.latest
+    if state.active_tab == Tab::Topics && state.active_pane == Pane::Right && !state.show_endpoints
     {
-        expand_first_level(data, &topic_name, &mut state.tree_expanded);
-    }
-}
-
-fn expand_first_level(value: &DynValue, path: &str, expanded: &mut HashMap<String, bool>) {
-    if let DynValue::Struct { fields, .. } = value {
-        for (name, val) in fields {
-            let field_path = format!("{path}.{name}");
-            if matches!(val, DynValue::Struct { .. }) {
-                expanded.insert(field_path, true);
-            }
-        }
+        state.tree_toggle(Some(true));
     }
 }
 
 fn handle_enter(state: &mut AppState) {
-    if state.active_tab == Tab::Topics
-        && state.active_pane == Pane::Right
-        && let Some(topic_name) = state.selected_topic_name()
-        && let Some(topic_data) = state.topics.get(&topic_name)
-        && let Some(ref data) = topic_data.latest
-    {
-        toggle_first_level(data, &topic_name, &mut state.tree_expanded);
-    }
-}
-
-fn toggle_first_level(value: &DynValue, path: &str, expanded: &mut HashMap<String, bool>) {
-    if let DynValue::Struct { fields, .. } = value {
-        for (name, val) in fields {
-            let field_path = format!("{path}.{name}");
-            if matches!(val, DynValue::Struct { .. }) {
-                let current = expanded.get(&field_path).copied().unwrap_or(false);
-                expanded.insert(field_path, !current);
-                return;
-            }
+    match state.active_tab {
+        Tab::Topics if state.active_pane == Pane::Right && !state.show_endpoints => {
+            state.tree_toggle(None)
         }
+        Tab::Topics | Tab::Nodes => state.active_pane = Pane::Right,
+        Tab::Log => {
+            state.log_expanded = !state.log_expanded;
+            state.log_live = false;
+            state.log_inspected = state
+                .filtered_log_entries()
+                .get(state.log_selected)
+                .map(|e| (*e).clone());
+            state.scroll.borrow_mut().insert("log-message".into(), 0);
+        }
+        _ => {}
     }
 }
 
@@ -485,9 +549,16 @@ mod tests {
         ));
         let status = state.joint_status.clone().unwrap();
         assert!(status.contains("clamped to upper limit"), "{status}");
+        assert!(state.joint_pending);
+        assert_eq!(state.joint_targets["elbow"], 1.0);
+        assert_eq!(state.joints[0].position, None);
 
         state.handle_joint_command_response(Response::Ok("joint command published".into()));
-        assert_eq!(state.joint_status.as_deref(), Some(status.as_str()));
+        assert_eq!(
+            state.joint_status,
+            Some(status.replace("pending", "published"))
+        );
+        assert!(!state.joint_pending);
 
         state.handle_joint_command_response(Response::Error("joint publisher not ready".into()));
         assert_eq!(

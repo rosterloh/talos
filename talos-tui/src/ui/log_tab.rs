@@ -1,101 +1,94 @@
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Row, Table, TableState};
-
+use super::style;
 use crate::state::AppState;
+use ratatui::{
+    Frame,
+    layout::{Constraint, Layout, Rect},
+    text::Line,
+    widgets::{Cell, Paragraph, Row, Table},
+};
 
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(3)])
-        .split(area);
-
-    draw_log_table(f, state, chunks[0]);
-    draw_filter_bar(f, state, chunks[1]);
-}
-
-fn draw_log_table(f: &mut Frame, state: &AppState, area: Rect) {
+    let [body, filter] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
+    let mode = if state.log_live {
+        "LIVE"
+    } else {
+        "PAUSED · Space resume"
+    };
     let filtered = state.filtered_log_entries();
-
-    let rows: Vec<Row> = filtered
-        .iter()
-        .enumerate()
-        .map(|(i, entry)| {
-            let level_style = match entry.level.as_str() {
-                "DEBUG" => Style::default().fg(Color::DarkGray),
-                "INFO" => Style::default().fg(Color::Green),
-                "WARN" => Style::default().fg(Color::Yellow),
-                "ERROR" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                "FATAL" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                _ => Style::default(),
-            };
-
-            let row_style = if i == state.log_selected {
-                Style::default().bg(Color::DarkGray)
-            } else {
-                Style::default()
-            };
-
-            Row::new(vec![
-                ratatui::widgets::Cell::from(entry.timestamp.clone()),
-                ratatui::widgets::Cell::from(entry.level.clone()).style(level_style),
-                ratatui::widgets::Cell::from(entry.node.clone()),
-                ratatui::widgets::Cell::from(entry.message.clone()),
-            ])
-            .style(row_style)
-        })
-        .collect();
-
-    let header = Row::new(vec!["Time", "Level", "Node", "Message"])
-        .style(
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )
-        .bottom_margin(1);
-
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Length(12),
-            Constraint::Length(7),
-            Constraint::Length(25),
-            Constraint::Min(20),
-        ],
-    )
-    .header(header)
-    .block(Block::default().borders(Borders::ALL).title(" LOG "));
-
-    let mut table_state = TableState::default().with_selected(Some(state.log_selected));
-    f.render_stateful_widget(table, area, &mut table_state);
-}
-
-fn draw_filter_bar(f: &mut Frame, state: &AppState, area: Rect) {
-    let filter_text = Line::from(vec![
-        Span::styled("  Filter: ", Style::default().fg(Color::DarkGray)),
-        Span::styled("[", Style::default().fg(Color::DarkGray)),
-        Span::styled(
+    if state.log_expanded {
+        let lines = state
+            .log_inspected
+            .as_ref()
+            .map(|e| {
+                let mut lines = vec![
+                    Line::from(format!("{} · {} · {}", e.timestamp, e.level, e.node)),
+                    Line::from(""),
+                ];
+                lines.extend(e.message.lines().map(|s| Line::from(s.to_string())));
+                lines
+            })
+            .unwrap_or_else(|| vec![Line::from("No matching entries")]);
+        super::scroll_text(
+            f,
+            state,
+            "log-message",
+            format!("LOG {mode} · Enter close"),
+            lines,
+            body,
+            true,
+        );
+    } else {
+        let time = area.width >= 80;
+        let node = area.width >= 55;
+        let rows: Vec<_> = filtered
+            .iter()
+            .map(|entry| {
+                let mut cells = Vec::new();
+                if time {
+                    cells.push(Cell::from(entry.timestamp.clone()).style(style::SECONDARY));
+                }
+                cells.push(
+                    Cell::from(entry.level.clone()).style(match entry.level.as_str() {
+                        "WARN" => style::WARNING,
+                        "ERROR" | "FATAL" => style::ERROR,
+                        "DEBUG" => style::SECONDARY,
+                        _ => style::PRIMARY,
+                    }),
+                );
+                if node {
+                    cells.push(Cell::from(entry.node.clone()).style(style::SECONDARY));
+                }
+                cells.push(Cell::from(entry.message.replace(['\n', '\r'], " ")));
+                Row::new(cells)
+            })
+            .collect();
+        let mut widths = Vec::new();
+        let mut header = Vec::new();
+        if time {
+            widths.push(Constraint::Length(12));
+            header.push("Time");
+        }
+        widths.push(Constraint::Length(5));
+        header.push("Level");
+        if node {
+            widths.push(Constraint::Length((area.width / 5).min(24)));
+            header.push("Node");
+        }
+        widths.push(Constraint::Min(1));
+        header.push("Message");
+        let table = Table::new(rows, widths)
+            .header(Row::new(header).style(style::SECONDARY))
+            .block(style::pane(format!("LOG {mode}"), true));
+        super::table(f, state, "logs", table, body, state.log_selected, true);
+    }
+    f.render_widget(
+        Paragraph::new(format!(
+            " {} · {} entries · /{}",
             state.log_severity_filter.label(),
-            Style::default().fg(Color::Yellow),
-        ),
-        Span::styled("]  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("node: ", Style::default().fg(Color::DarkGray)),
-        if state.log_node_filter.is_empty() {
-            Span::styled("(all)", Style::default().fg(Color::DarkGray))
-        } else {
-            Span::styled(&state.log_node_filter, Style::default().fg(Color::White))
-        },
-        Span::raw("  "),
-        Span::styled("search: ", Style::default().fg(Color::DarkGray)),
-        if state.log_search.is_empty() {
-            Span::styled("(none)", Style::default().fg(Color::DarkGray))
-        } else {
-            Span::styled(&state.log_search, Style::default().fg(Color::White))
-        },
-    ]);
-
-    let bar = Paragraph::new(filter_text).block(Block::default().borders(Borders::ALL));
-    f.render_widget(bar, area);
+            filtered.len(),
+            state.log_search
+        ))
+        .style(style::SECONDARY),
+        filter,
+    );
 }
