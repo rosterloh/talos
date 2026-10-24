@@ -37,13 +37,6 @@ those entries into the versioned section when a release is created.
   -0383. `quick-xml` (via `urdf-rs`) still has RUSTSEC-2026-0194/-0195: no
   `urdf-rs` release allows the fixed 0.41 yet.
 
-### Changed
-
-- Update the Pixi environment to Rust 1.99 and the latest RoboStack Lyrical
-  builds (distro mutex 0.22, patch releases of tf2, rosbag2, rmw_fastrtps and
-  rmw_zenoh) plus conda-forge updates. The osx-arm64 platform now requires
-  macOS 14, as RoboStack's current builds do.
-
 ## [1.0.1] - 2026-09-24
 
 ### Added
