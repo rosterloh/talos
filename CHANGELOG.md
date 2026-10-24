@@ -30,6 +30,20 @@ those entries into the versioned section when a release is created.
 - Preserve parameter errors after refresh, block duplicate pending commands,
   and report unknown outcomes when a connection is lost during a request.
 
+### Security
+
+- Refresh `Cargo.lock`, pulling in `rustls` 0.23.46, `rustls-webpki` 0.103.16
+  and `webpki-root-certs` 1.0.11 to fix RUSTSEC-2026-0346 to -0349, -0382 and
+  -0383. `quick-xml` (via `urdf-rs`) still has RUSTSEC-2026-0194/-0195: no
+  `urdf-rs` release allows the fixed 0.41 yet.
+
+### Changed
+
+- Update the Pixi environment to Rust 1.99 and the latest RoboStack Lyrical
+  builds (distro mutex 0.22, patch releases of tf2, rosbag2, rmw_fastrtps and
+  rmw_zenoh) plus conda-forge updates. The osx-arm64 platform now requires
+  macOS 14, as RoboStack's current builds do.
+
 ## [1.0.1] - 2026-09-24
 
 ### Added
