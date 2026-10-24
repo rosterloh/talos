@@ -18,15 +18,15 @@ tokio-util = { workspace = true }
 bytes = { workspace = true }
 toml = { workspace = true }
 thiserror = { workspace = true }
-urdf-rs = "0.9"
-futures-util = { version = "0.3", features = ["sink"] }
+urdf-rs = "0.9.1"
+futures-util = { version = "0.3.34", features = ["sink"] }
 
 # QUIC transport (optional)
-quinn = { version = "0.11", optional = true, features = ["rustls"] }
-rustls = { version = "0.23", optional = true, features = ["ring"] }
-rcgen = { version = "0.14", optional = true }
+quinn = { version = "0.11.12", optional = true, features = ["rustls"] }
+rustls = { version = "0.23.46", optional = true, features = ["ring"] }
+rcgen = { version = "0.14.10", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
-futures-util = { version = "0.3", features = ["sink"] }
-tempfile = "3"
+futures-util = { version = "0.3.34", features = ["sink"] }
+tempfile = "3.27.0"

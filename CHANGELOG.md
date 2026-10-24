@@ -36,6 +36,9 @@ those entries into the versioned section when a release is created.
   and `webpki-root-certs` 1.0.11 to fix RUSTSEC-2026-0346 to -0349, -0382 and
   -0383. `quick-xml` (via `urdf-rs`) still has RUSTSEC-2026-0194/-0195: no
   `urdf-rs` release allows the fixed 0.41 yet.
+- Raise every crates.io version requirement in the workspace manifests to
+  the version now in `Cargo.lock` (for example `tokio` 1.54.1 and `rustls`
+  0.23.46), so builds can no longer resolve to the vulnerable versions.
 
 ## [1.0.1] - 2026-09-24
 
