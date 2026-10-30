@@ -60,6 +60,8 @@ fn test_config() -> Arc<AgentConfig> {
             topic: TOPIC.to_string(),
             msg_type: "std_msgs/msg/String".to_string(),
             qos: QosProfile::Default,
+            expected_hz: None,
+            rate_tolerance_pct: None,
         }],
         control: None,
         poses: HashMap::new(),

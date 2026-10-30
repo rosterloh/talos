@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use talos_common::protocol::messages::Response;
-use talos_common::protocol::types::{DynValue, Timestamp, TopicStats};
+use talos_common::protocol::types::{DynValue, Timestamp, TopicStats, TopicStatus};
 use tokio::sync::mpsc;
 
 pub type ClientId = u64;
@@ -46,7 +46,14 @@ struct TopicCounter {
     rate_hz: f64,
     bandwidth_bps: f64,
     latency_ms: Option<f64>,
+    /// `(hz, tolerance_pct)` from config.
+    expected: Option<(f64, f64)>,
+    /// Seconds since the last window that saw a message.
+    quiet_secs: f64,
 }
+
+/// Default allowed deviation from `expected_hz`.
+const DEFAULT_RATE_TOLERANCE_PCT: f64 = 10.0;
 
 struct ClientEntry {
     subscriptions: HashSet<String>,
@@ -129,6 +136,13 @@ impl TopicRouter {
 }
 
 impl TopicRouter {
+    /// Check `topic`'s rate against `hz` (± `tolerance_pct`, default 10%).
+    /// The topic is reported as stale until its first message arrives.
+    pub fn set_expected_rate(&mut self, topic: &str, hz: f64, tolerance_pct: Option<f64>) {
+        self.stats.entry(topic.to_string()).or_default().expected =
+            Some((hz, tolerance_pct.unwrap_or(DEFAULT_RATE_TOLERANCE_PCT)));
+    }
+
     /// Close the current stats window: turn its counts into rates, fold them
     /// into the smoothed values, and start a new window. Call about once a
     /// second.
@@ -141,7 +155,8 @@ impl TopicRouter {
         for c in self.stats.values_mut() {
             let rate = c.msgs as f64 / elapsed;
             let bandwidth = c.bytes as f64 / elapsed;
-            if c.windows == 0 {
+            // Also seed on first traffic: an expected-rate topic has empty windows before it.
+            if c.windows == 0 || c.rate_hz == 0.0 {
                 c.rate_hz = rate;
                 c.bandwidth_bps = bandwidth;
             } else {
@@ -155,6 +170,11 @@ impl TopicRouter {
                     None => mean,
                 });
             }
+            c.quiet_secs = if c.msgs == 0 {
+                c.quiet_secs + elapsed
+            } else {
+                0.0
+            };
             c.windows += 1;
             c.msgs = 0;
             c.bytes = 0;
@@ -174,10 +194,22 @@ impl TopicRouter {
                 rate_hz: c.rate_hz,
                 bandwidth_bps: c.bandwidth_bps,
                 latency_ms: c.latency_ms,
+                expected_hz: c.expected.map(|(hz, _)| hz),
+                status: c.expected.map(|(hz, tol)| rate_status(c, hz, tol)),
             })
             .collect();
         stats.sort_by(|a, b| a.topic.cmp(&b.topic));
         stats
+    }
+}
+
+fn rate_status(c: &TopicCounter, hz: f64, tolerance_pct: f64) -> TopicStatus {
+    if c.quiet_secs > 0.0 && c.quiet_secs >= 2.0 / hz {
+        TopicStatus::Stale
+    } else if (c.rate_hz - hz).abs() > hz * tolerance_pct / 100.0 {
+        TopicStatus::OutOfRange
+    } else {
+        TopicStatus::Ok
     }
 }
 
@@ -272,6 +304,43 @@ mod tests {
 
         let latency = router.topic_stats()[0].latency_ms.unwrap();
         assert!((250.0..1000.0).contains(&latency), "{latency}");
+    }
+
+    #[test]
+    fn expected_rate_reports_ok_out_of_range_and_stale() {
+        let mut router = TopicRouter::new();
+        router.set_expected_rate("/scan", 10.0, None);
+        let start = router.window_start;
+        router.tick_stats(start + Duration::from_secs(1));
+        let status = |r: &TopicRouter| r.topic_stats()[0].status;
+        assert_eq!(status(&router), Some(TopicStatus::Stale));
+
+        for _ in 0..10 {
+            router.route(&data("/scan", NO_STAMP, DynValue::Bool(true)));
+        }
+        router.tick_stats(start + Duration::from_secs(2));
+        assert_eq!(status(&router), Some(TopicStatus::Ok));
+        assert_eq!(router.topic_stats()[0].expected_hz, Some(10.0));
+
+        for _ in 0..5 {
+            router.route(&data("/scan", NO_STAMP, DynValue::Bool(true)));
+        }
+        router.tick_stats(start + Duration::from_secs(3));
+        assert_eq!(status(&router), Some(TopicStatus::OutOfRange));
+
+        router.tick_stats(start + Duration::from_secs(4));
+        assert_eq!(status(&router), Some(TopicStatus::Stale));
+    }
+
+    #[test]
+    fn slow_low_rate_topic_is_not_stale_after_one_empty_window() {
+        let mut router = TopicRouter::new();
+        router.set_expected_rate("/map", 0.25, Some(50.0));
+        let start = router.window_start;
+        router.route(&data("/map", NO_STAMP, DynValue::Bool(true)));
+        router.tick_stats(start + Duration::from_secs(4));
+        router.tick_stats(start + Duration::from_secs(5));
+        assert_eq!(router.topic_stats()[0].status, Some(TopicStatus::Ok));
     }
 
     #[test]

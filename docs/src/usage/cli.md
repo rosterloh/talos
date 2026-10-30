@@ -86,7 +86,7 @@ tools such as `jq`:
 | `list-nodes` | one array of `{name, namespace, publishers, subscribers, services}` |
 | `list-params`, `get-param` | one array of `{name, type, value}` |
 | `echo` | one `{topic, stamp: {sec, nanosec}, data}` object per line per message |
-| `hz` | one `{topic, rate_hz, bandwidth_bps, latency_ms}` object per line per second |
+| `hz` | one `{topic, rate_hz, bandwidth_bps, latency_ms, expected_hz, status}` object per line per second |
 
 `set-param` ignores `--json`; errors still go to stderr with a non-zero exit.
 

@@ -198,11 +198,15 @@ mod tests {
                     topic: "/z".into(),
                     msg_type: "z_msgs/msg/Z".into(),
                     qos: QosProfile::Default,
+                    expected_hz: None,
+                    rate_tolerance_pct: None,
                 },
                 SubscriptionConfig {
                     topic: "/a".into(),
                     msg_type: "a_msgs/msg/A".into(),
                     qos: QosProfile::SensorData,
+                    expected_hz: None,
+                    rate_tolerance_pct: None,
                 },
             ],
             ..Default::default()
