@@ -7,6 +7,12 @@ those entries into the versioned section when a release is created.
 
 ## [Unreleased]
 
+### Added
+
+- Optional `expected_hz` / `rate_tolerance_pct` per subscription. Topic stats
+  then report OK, OUT OF RANGE or STALE, shown in the TUI and `talos-cli hz`.
+  Adds fields to `TopicStats`, so agent and clients must be upgraded together.
+
 ### Changed
 
 - Rework the native TUI as a restrained instrument console with shared semantic

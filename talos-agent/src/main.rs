@@ -45,7 +45,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let router: RouterHandle = Arc::new(Mutex::new(TopicRouter::new()));
+    let mut topic_router = TopicRouter::new();
+    for sub in &config.subscriptions {
+        if let Some(hz) = sub.expected_hz {
+            topic_router.set_expected_rate(&sub.topic, hz, sub.rate_tolerance_pct);
+        }
+    }
+    let router: RouterHandle = Arc::new(Mutex::new(topic_router));
     let joint_publisher: JointPublisher = Arc::new(Mutex::new(None));
     let graph_handle: GraphHandle = Arc::new(Mutex::new(None));
 

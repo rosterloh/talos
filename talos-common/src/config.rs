@@ -91,6 +91,12 @@ pub struct SubscriptionConfig {
     pub msg_type: String,
     #[serde(default)]
     pub qos: QosProfile,
+    /// Expected publish rate; enables the rate health check in topic stats.
+    #[serde(default)]
+    pub expected_hz: Option<f64>,
+    /// Allowed deviation from `expected_hz`, in percent. Defaults to 10.
+    #[serde(default)]
+    pub rate_tolerance_pct: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,7 +120,32 @@ impl AgentConfig {
             .map_err(|e| Error::Config(format!("failed to read config file: {e}")))?;
         let config: AgentConfig = toml::from_str(&contents)
             .map_err(|e| Error::Config(format!("failed to parse config: {e}")))?;
+        config.validate()?;
         Ok(config)
+    }
+
+    fn validate(&self) -> Result<(), Error> {
+        for sub in &self.subscriptions {
+            if sub
+                .expected_hz
+                .is_some_and(|hz| !(hz > 0.0 && hz.is_finite()))
+            {
+                return Err(Error::Config(format!(
+                    "{}: expected_hz must be a positive number",
+                    sub.topic
+                )));
+            }
+            if sub
+                .rate_tolerance_pct
+                .is_some_and(|t| !(t >= 0.0 && t.is_finite()))
+            {
+                return Err(Error::Config(format!(
+                    "{}: rate_tolerance_pct must be zero or positive",
+                    sub.topic
+                )));
+            }
+        }
+        Ok(())
     }
 
     pub fn load_or_default(path: Option<&Path>) -> Result<Self, Error> {
@@ -160,6 +191,15 @@ mod tests {
         "#;
         let sub: SubscriptionConfig = toml::from_str(toml).unwrap();
         assert!(matches!(sub.qos, QosProfile::SensorData));
+    }
+
+    #[test]
+    fn non_positive_expected_hz_is_rejected() {
+        let config: AgentConfig = toml::from_str(
+            "[[subscriptions]]\ntopic = \"/scan\"\ntype = \"t\"\nexpected_hz = 0.0\n",
+        )
+        .unwrap();
+        assert!(config.validate().is_err());
     }
 
     #[test]

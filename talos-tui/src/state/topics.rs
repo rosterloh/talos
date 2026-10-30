@@ -488,6 +488,8 @@ mod tests {
             rate_hz: 9.6,
             bandwidth_bps: 0.0,
             latency_ms: None,
+            expected_hz: None,
+            status: None,
         }]);
         let topic = &state.topics["/scan"];
         let (_, at) = topic.stats.as_ref().unwrap();

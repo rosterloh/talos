@@ -83,6 +83,23 @@ type = "geometry_msgs/msg/PoseStamped"
 
 Unknown message types are skipped by the agent.
 
+### Expected Rates
+
+`expected_hz` turns on a rate check for a topic. `rate_tolerance_pct` sets the
+allowed deviation (default 10%):
+
+```toml
+[[subscriptions]]
+topic = "/scan"
+type = "sensor_msgs/msg/LaserScan"
+qos = "sensor_data"
+expected_hz = 10.0
+rate_tolerance_pct = 20.0
+```
+
+See [Rates](../features/topic-observation.md#rates) for how the status is
+derived.
+
 ## Joint Control
 
 Joint control is optional:

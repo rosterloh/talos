@@ -104,6 +104,30 @@ pub struct TopicStats {
     /// `None` for types without a stamp. Uses the agent's wall clock, so it
     /// is meaningless under simulated time.
     pub latency_ms: Option<f64>,
+    /// The configured `expected_hz`, if any.
+    pub expected_hz: Option<f64>,
+    /// Rate health against `expected_hz`; `None` when no rate is expected.
+    pub status: Option<TopicStatus>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TopicStatus {
+    Ok,
+    /// Smoothed rate is outside the tolerance band.
+    OutOfRange,
+    /// No message for two expected periods (and at least one stats window).
+    Stale,
+}
+
+impl TopicStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ok => "OK",
+            Self::OutOfRange => "OUT OF RANGE",
+            Self::Stale => "STALE",
+        }
+    }
 }
 
 /// A publisher or subscription on a topic, with the QoS it offers (publisher)

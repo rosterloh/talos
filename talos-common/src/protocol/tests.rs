@@ -343,6 +343,8 @@ fn topic_stats_round_trip() {
         rate_hz: 10.0,
         bandwidth_bps: 2048.0,
         latency_ms: Some(3.5),
+        expected_hz: None,
+        status: None,
     }]));
 }
 

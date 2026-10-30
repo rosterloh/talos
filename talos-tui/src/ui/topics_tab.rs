@@ -6,7 +6,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Cell, List, ListItem, Paragraph, Row, Sparkline, Table},
 };
-use talos_common::protocol::types::{DynValue, EndpointInfo};
+use talos_common::protocol::types::{DynValue, EndpointInfo, TopicStatus};
 
 pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
     let [left, right] = super::panes(area, state.active_pane);
@@ -17,15 +17,20 @@ pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
         .iter()
         .map(|name| {
             let topic = &state.topics[*name];
-            let rate = topic
-                .current_stats(now)
+            let stats = topic.current_stats(now);
+            let rate = stats
                 .map(|s| format!("{:.0}Hz", s.rate_hz))
                 .unwrap_or_else(|| "—".into());
+            let rate_style = match stats.and_then(|s| s.status) {
+                Some(TopicStatus::Ok) => style::SUCCESS,
+                Some(_) => style::ERROR,
+                None => style::SECONDARY,
+            };
             let (badge, badge_style) = subscription_badge(topic);
             Row::new(vec![
                 Cell::from(badge).style(badge_style),
                 Cell::from(name.to_string()),
-                Cell::from(rate).style(style::SECONDARY),
+                Cell::from(rate).style(rate_style),
             ])
         })
         .collect();
@@ -85,6 +90,16 @@ pub fn draw(f: &mut Frame, state: &AppState, area: Rect) {
             stats.rate_hz,
             format_bandwidth(stats.bandwidth_bps)
         )));
+        if let (Some(hz), Some(status)) = (stats.expected_hz, stats.status) {
+            summary.push(Line::styled(
+                format!("Expected {hz} Hz: {}", status.label()),
+                if status == TopicStatus::Ok {
+                    style::SUCCESS
+                } else {
+                    style::ERROR
+                },
+            ));
+        }
     }
     let show_spark = right.height >= 16 && topic.rate_history.len() > 1 && !state.show_endpoints;
     let [summary_area, body, spark] = Layout::vertical([
@@ -301,6 +316,8 @@ pub(crate) mod tests {
                 rate_hz,
                 bandwidth_bps: 2048.0,
                 latency_ms: Some(3.5),
+                expected_hz: None,
+                status: None,
             }]);
         }
 

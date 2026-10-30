@@ -71,6 +71,17 @@ These numbers come from the agent rather than from frames a client receives.
 A client that falls behind has frames dropped by the agent, but the stats stay
 accurate. The TUI polls the stats every second and shows them in the topic list
 and detail pane, with a 60-second rate sparkline.
+
+Topics with an `expected_hz` in config also get a status:
+
+- **OK**: the smoothed rate is within `rate_tolerance_pct` of `expected_hz`.
+- **OUT OF RANGE**: it is not. The smoothed rate lags a real change by a few
+  seconds.
+- **STALE**: no message for two expected periods (at least one window). An
+  expected topic is stale until its first message.
+
+The TUI colours the rate green or red and shows the status in the detail pane;
+`talos-cli hz` appends it to each line.
 `talos-cli hz <topic>` prints them from the command line.
 
 The TUI keeps the latest value for each topic and renders on a fixed tick loop.

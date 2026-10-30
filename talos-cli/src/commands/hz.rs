@@ -42,16 +42,21 @@ fn format_stats(s: &TopicStats) -> String {
     let latency = s
         .latency_ms
         .map_or("-".to_string(), |ms| format!("{ms:.1} ms"));
-    format!(
+    let mut line = format!(
         "rate: {:.2} Hz  bandwidth: {:.1} KB/s  latency: {latency}",
         s.rate_hz,
         s.bandwidth_bps / 1024.0
-    )
+    );
+    if let (Some(hz), Some(status)) = (s.expected_hz, s.status) {
+        line.push_str(&format!("  expected: {hz} Hz {}", status.label()));
+    }
+    line
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use talos_common::protocol::types::TopicStatus;
 
     #[test]
     fn format_stats_shows_missing_latency_as_dash() {
@@ -60,10 +65,25 @@ mod tests {
             rate_hz: 10.0,
             bandwidth_bps: 2048.0,
             latency_ms: None,
+            expected_hz: None,
+            status: None,
         };
         assert_eq!(
             format_stats(&s),
             "rate: 10.00 Hz  bandwidth: 2.0 KB/s  latency: -"
         );
+    }
+
+    #[test]
+    fn format_stats_shows_expected_rate_status() {
+        let s = TopicStats {
+            topic: "/scan".into(),
+            rate_hz: 5.0,
+            bandwidth_bps: 0.0,
+            latency_ms: None,
+            expected_hz: Some(10.0),
+            status: Some(TopicStatus::OutOfRange),
+        };
+        assert!(format_stats(&s).ends_with("expected: 10 Hz OUT OF RANGE"));
     }
 }
