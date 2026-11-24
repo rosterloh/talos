@@ -1,0 +1,13 @@
+[package]
+name = "talos-viewer"
+description = "Slint 3D URDF viewer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+talos-urdf = { path = "../talos-urdf" }
+slint = { version = "1.19.0", features = ["unstable-wgpu-30", "renderer-femtovg-wgpu"] }
+bytemuck = "1"

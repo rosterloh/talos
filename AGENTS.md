@@ -82,6 +82,10 @@ talos-tui ──► talos-common ◄── talos-agent ──► rclrs / ROS 2
 
 **talos-cli** — Developer workstation CLI. Subcommands: `list-topics`, `list-nodes`, `echo <topic>`.
 
+**talos-urdf** — Renderer-agnostic URDF scene (kinematic tree, FK by joint name, primitive tessellation). No GPU or ROS 2 dependency.
+
+**talos-viewer** — Slint 1.19 3D URDF viewer; renders `talos-urdf` with wgpu 30 into a texture (`unstable-wgpu-30`). Standalone for now.
+
 ## Key Design Patterns
 
 - **ROS 2 isolation**: Only `talos-agent` depends on rclrs. Client tools work without any ROS 2 installation.

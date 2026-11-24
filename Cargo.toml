@@ -5,6 +5,8 @@ members = [
     "talos-common",
     "talos-agent",
     "talos-tui",
+    "talos-urdf",
+    "talos-viewer",
 ]
 
 [workspace.package]
