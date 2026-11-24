@@ -5857,6 +5857,7 @@ name = "talos-viewer"
 version = "1.0.1"
 dependencies = [
  "bytemuck",
+ "fontique",
  "slint",
  "talos-urdf",
 ]
