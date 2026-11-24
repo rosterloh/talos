@@ -1,5 +1,7 @@
 //! Offscreen wgpu renderer: draws a [`Robot`] into a texture Slint can display.
 
+use std::collections::HashMap;
+
 use slint::wgpu_30::wgpu;
 use talos_urdf::{Mat4, Robot, TriMesh, Vec3};
 use wgpu::util::DeviceExt;
@@ -10,6 +12,9 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const DRAW_STRIDE: u64 = 256;
 const GRID_HALF_CELLS: i32 = 10;
 const GRID_CELL_M: f32 = 0.5;
+/// Camera distance range in metres, inside the 100 m far plane.
+pub const MIN_DISTANCE: f32 = 0.05;
+pub const MAX_DISTANCE: f32 = 50.0;
 
 /// Z-up orbit camera, matching ROS conventions.
 pub struct OrbitCamera {
@@ -37,7 +42,7 @@ impl OrbitCamera {
     }
 
     pub fn zoom(&mut self, scroll: f32) {
-        self.distance = (self.distance * (-scroll * 0.002).exp()).clamp(0.05, 50.0);
+        self.distance = (self.distance * (-scroll * 0.002).exp()).clamp(MIN_DISTANCE, MAX_DISTANCE);
     }
 }
 
@@ -56,7 +61,10 @@ pub struct Renderer {
     camera_group: wgpu::BindGroup,
     draws: wgpu::Buffer,
     draw_group: wgpu::BindGroup,
-    /// One per robot visual; `None` for meshes not loaded yet.
+    /// The robot the buffers below were sized for, so `render` cannot mismatch them.
+    robot: Robot,
+    /// One per robot visual; `None` for meshes.
+    // shortcut: mesh visuals are not drawn, load STL/DAE/OBJ when live /robot_description needs real robots.
     meshes: Vec<Option<GpuMesh>>,
     grid: (wgpu::Buffer, u32),
     target: Option<(wgpu::Texture, wgpu::TextureView)>,
@@ -218,16 +226,16 @@ impl Renderer {
                 grid.len() as u32,
             ),
             target: None,
+            robot: robot.clone(),
             device: device.clone(),
             queue: queue.clone(),
         }
     }
 
-    /// Render the robot with `link_poses` from [`Robot::link_poses`].
+    /// Render the robot at joint `positions`, keyed by joint name.
     pub fn render(
         &mut self,
-        robot: &Robot,
-        link_poses: &[Mat4],
+        positions: &HashMap<String, f64>,
         camera: &OrbitCamera,
         width: u32,
         height: u32,
@@ -282,7 +290,8 @@ impl Renderer {
             draws[at..at + size_of::<Draw>()].copy_from_slice(bytemuck::bytes_of(&draw));
         };
         put(0, Mat4::IDENTITY, [0.45, 0.45, 0.5, 1.0]);
-        for (i, v) in robot.visuals.iter().enumerate() {
+        let link_poses = self.robot.link_poses(positions);
+        for (i, v) in self.robot.visuals.iter().enumerate() {
             put(i + 1, link_poses[v.link] * v.origin, v.color);
         }
         self.queue.write_buffer(&self.draws, 0, &draws);

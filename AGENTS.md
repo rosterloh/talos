@@ -91,7 +91,7 @@ talos-tui ──► talos-common ◄── talos-agent ──► rclrs / ROS 2
 - **ROS 2 isolation**: Only `talos-agent` depends on rclrs. Client tools work without any ROS 2 installation.
 - **`DynValue` tree**: ROS 2 messages are converted to a generic `DynValue` enum in the agent, so clients need no message type definitions.
 - **Explicit subscriptions**: Clients send `Subscribe { topics }` after connecting; the `TopicRouter` only delivers data for subscribed topics.
-- **Feature-gated QUIC**: All crates accept a `quic` Cargo feature. Without it, only UDS transport is compiled.
+- **Feature-gated QUIC**: `talos-common`, `talos-agent`, `talos-cli` and `talos-tui` accept a `quic` Cargo feature. Without it, only UDS transport is compiled.
 
 ## Config Format (TOML)
 

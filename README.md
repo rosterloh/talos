@@ -52,6 +52,8 @@ cargo build --features quic
 - `talos-agent`: ROS 2 bridge and client server.
 - `talos-cli`: scriptable command-line client.
 - `talos-tui`: interactive terminal UI.
+- `talos-urdf`: renderer-agnostic URDF scene and forward kinematics.
+- `talos-viewer`: standalone Slint 3D URDF viewer.
 
 ## Status
 

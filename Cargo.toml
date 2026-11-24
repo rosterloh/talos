@@ -8,6 +8,14 @@ members = [
     "talos-urdf",
     "talos-viewer",
 ]
+# Plain `cargo build` (and `pixi run build` on the robot) skips the GUI stack.
+default-members = [
+    "talos-cli",
+    "talos-common",
+    "talos-agent",
+    "talos-tui",
+    "talos-urdf",
+]
 
 [workspace.package]
 version = "1.0.1"

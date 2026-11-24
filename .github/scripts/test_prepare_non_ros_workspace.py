@@ -38,6 +38,10 @@ class PrepareNonRosWorkspaceTest(unittest.TestCase):
                         '    "talos-agent",',
                         '    "talos-tui",',
                         "]",
+                        'default-members = [',
+                        '    "talos-agent",',
+                        '    "talos-tui",',
+                        "]",
                         "",
                     ]
                 )

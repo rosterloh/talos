@@ -9,6 +9,9 @@ cargo run -p talos-viewer                      # bundled demo arm
 cargo run -p talos-viewer -- path/to/robot.urdf
 ```
 
+A plain `cargo build` skips the viewer, so the robot build does not compile
+the GUI stack; `-p talos-viewer` (as above) builds it.
+
 Drag in the viewport to orbit and scroll to zoom. The view is Z-up, matching
 ROS. It needs a GPU adapter through wgpu; on a machine without one, set
 `SLINT_WGPU_CPU=1` to allow a software adapter such as lavapipe.
@@ -28,6 +31,10 @@ ROS. It needs a GPU adapter through wgpu; on a machine without one, set
 
 - Mesh visuals (`package://` STL, DAE, OBJ) are skipped with a warning.
 - Capsules are drawn as cylinders.
+- Translucent material colours are drawn opaque.
+- Joints whose limits are equal stay fixed and get no slider.
 - Floating, planar and spherical joints stay at their origin.
+- The render test needs a GPU adapter, so it is ignored by default; run it
+  with `cargo test -p talos-viewer -- --ignored`.
 - No live data: wiring `/robot_description` and `/joint_states` from an agent
   session is the next step.

@@ -21,6 +21,8 @@ pub enum Error {
     UnknownLink { joint: String, link: String },
     #[error("URDF is not a single tree: {0}")]
     NotATree(String),
+    #[error("mimic joints form a cycle at joint {0}")]
+    MimicCycle(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +32,7 @@ pub enum JointKind {
     Continuous,
     Prismatic,
     /// Floating, planar and spherical joints: drawn at their origin, not moved.
+    // shortcut: no multi-DOF joint state, add it when a mobile base or free-floating robot needs it.
     Unsupported,
 }
 
@@ -43,7 +46,7 @@ pub struct Joint {
     axis: Vec3,
     pub lower: f64,
     pub upper: f64,
-    /// (mimicked joint, multiplier, offset)
+    /// (driven joint, multiplier, offset), with mimic chains resolved to their end.
     mimic: Option<(String, f64, f64)>,
 }
 
@@ -91,10 +94,12 @@ pub struct Visual {
 pub struct Robot {
     pub name: String,
     pub links: Vec<String>,
-    /// In topological order: a joint's parent link is placed before it is used.
+    /// In URDF declaration order.
     pub joints: Vec<Joint>,
     pub visuals: Vec<Visual>,
     root: usize,
+    /// Indices into `joints`, parent-first, so poses fill in a single pass.
+    fk_order: Vec<usize>,
 }
 
 const DEFAULT_COLOR: [f32; 4] = [0.7, 0.7, 0.7, 1.0];
@@ -175,24 +180,66 @@ impl Robot {
             return Err(Error::NotATree(format!("root links: {names:?}")));
         };
 
-        // Order joints parent-first so poses can be filled in a single pass.
-        let mut ordered = Vec::with_capacity(joints.len());
+        let mut fk_order = Vec::with_capacity(joints.len());
         let mut frontier = vec![root];
         while let Some(link) = frontier.pop() {
-            for j in joints.iter().filter(|j| j.parent == link) {
+            for (i, j) in joints.iter().enumerate().filter(|(_, j)| j.parent == link) {
                 frontier.push(j.child);
-                ordered.push(j.clone());
+                fk_order.push(i);
             }
         }
-        if ordered.len() != joints.len() {
+        if fk_order.len() != joints.len() {
             return Err(Error::NotATree("cycle in joint graph".into()));
         }
 
-        let materials: HashMap<&str, [f32; 4]> = urdf
-            .materials
+        // Resolve mimic chains to the driven joint, which is the only one in `positions`.
+        let by_name: HashMap<&str, usize> = joints
             .iter()
-            .filter_map(|m| Some((m.name.as_str(), m.color.as_ref()?.rgba.map(|c| c as f32))))
+            .enumerate()
+            .map(|(i, j)| (j.name.as_str(), i))
             .collect();
+        let resolved = joints
+            .iter()
+            .map(|j| {
+                let Some((mut src, mut mul, mut off)) = j.mimic.clone() else {
+                    return Ok(None);
+                };
+                for _ in 0..joints.len() {
+                    let Some((next, m, o)) = by_name
+                        .get(src.as_str())
+                        .and_then(|&i| joints[i].mimic.as_ref())
+                    else {
+                        return Ok(Some((src, mul, off)));
+                    };
+                    // q = mul * (m * next + o) + off
+                    off += mul * o;
+                    mul *= m;
+                    src = next.clone();
+                }
+                Err(Error::MimicCycle(j.name.clone()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (j, mimic) in joints.iter_mut().zip(resolved) {
+            j.mimic = mimic;
+        }
+
+        // As urdfdom: a top-level material wins over an inline one of the same
+        // name, and a material defined inline can be referenced by name elsewhere.
+        let mut materials: HashMap<&str, [f32; 4]> = HashMap::new();
+        let inline = urdf
+            .links
+            .iter()
+            .flat_map(|l| &l.visual)
+            .filter_map(|v| v.material.as_ref());
+        for m in urdf.materials.iter().chain(inline) {
+            if !m.name.is_empty()
+                && let Some(c) = &m.color
+            {
+                materials
+                    .entry(m.name.as_str())
+                    .or_insert(c.rgba.map(|x| x as f32));
+            }
+        }
         let visuals = urdf
             .links
             .iter()
@@ -221,10 +268,10 @@ impl Robot {
                     .material
                     .as_ref()
                     .and_then(|m| {
-                        m.color
-                            .as_ref()
-                            .map(|c| c.rgba.map(|x| x as f32))
-                            .or_else(|| materials.get(m.name.as_str()).copied())
+                        materials
+                            .get(m.name.as_str())
+                            .copied()
+                            .or_else(|| m.color.as_ref().map(|c| c.rgba.map(|x| x as f32)))
                     })
                     .unwrap_or(DEFAULT_COLOR),
             })
@@ -233,9 +280,10 @@ impl Robot {
         Ok(Self {
             name: urdf.name.clone(),
             links,
-            joints: ordered,
+            joints,
             visuals,
             root,
+            fk_order,
         })
     }
 
@@ -249,7 +297,7 @@ impl Robot {
     /// Missing joints sit at zero; mimic joints follow their source joint.
     pub fn link_poses(&self, positions: &HashMap<String, f64>) -> Vec<Mat4> {
         let mut world = vec![Mat4::IDENTITY; self.links.len()];
-        for j in &self.joints {
+        for j in self.fk_order.iter().map(|&i| &self.joints[i]) {
             let q = match &j.mimic {
                 Some((src, mul, off)) => positions.get(src).copied().unwrap_or(0.0) * mul + off,
                 None => positions.get(&j.name).copied().unwrap_or(0.0),
@@ -284,6 +332,17 @@ impl TriMesh {
 const SEGMENTS: u32 = 32;
 
 impl Shape {
+    /// Radius of a sphere about the shape's origin that contains it; 0 for meshes.
+    pub fn bounding_radius(&self) -> f32 {
+        match *self {
+            Shape::Box { size } => size.length() / 2.0,
+            Shape::Cylinder { radius, length } => radius.hypot(length / 2.0),
+            Shape::Sphere { radius } => radius,
+            // shortcut: mesh extent unknown until meshes load, use their bounds then.
+            Shape::Mesh { .. } => 0.0,
+        }
+    }
+
     /// Triangles for primitive shapes; `None` for meshes, which need loading.
     pub fn tessellate(&self) -> Option<TriMesh> {
         let mut m = TriMesh::default();

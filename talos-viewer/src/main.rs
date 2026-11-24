@@ -9,10 +9,10 @@ use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::rc::Rc;
 
-use renderer::{OrbitCamera, Renderer};
+use renderer::{MAX_DISTANCE, MIN_DISTANCE, OrbitCamera, Renderer};
 use slint::wgpu_30::WGPUConfiguration;
 use slint::{Model, VecModel};
-use talos_urdf::{JointKind, Robot, Vec3};
+use talos_urdf::{Joint, JointKind, Robot, Vec3};
 
 slint::slint! {
     #[edition = "1.19"]
@@ -85,44 +85,65 @@ struct State {
     renderer: Option<Renderer>,
 }
 
-fn sliders(robot: &Robot) -> Vec<JointSlider> {
+/// Slider range, or `None` when equal (or missing) limits lock the joint.
+fn slider_range(j: &Joint) -> Option<(f64, f64)> {
+    match j.kind {
+        JointKind::Continuous => Some((-PI, PI)),
+        _ if j.lower < j.upper => Some((j.lower, j.upper)),
+        _ => None,
+    }
+}
+
+/// Start pose: every movable joint at zero, clamped into its limits.
+fn initial_positions(robot: &Robot) -> HashMap<String, f64> {
     robot
         .joints
         .iter()
         .filter(|j| j.is_movable())
         .map(|j| {
-            let (lo, hi) = if j.kind == JointKind::Continuous || j.lower >= j.upper {
-                (-PI, PI)
-            } else {
-                (j.lower, j.upper)
-            };
-            JointSlider {
-                name: j.name.as_str().into(),
-                value: 0f64.clamp(lo, hi) as f32,
-                minimum: lo as f32,
-                maximum: hi as f32,
-            }
+            let (lo, hi) = slider_range(j).unwrap_or((j.lower, j.lower));
+            (j.name.clone(), 0f64.clamp(lo, hi))
         })
         .collect()
 }
 
-/// Frame the robot at its zero pose.
-fn initial_camera(robot: &Robot) -> OrbitCamera {
-    let origins: Vec<Vec3> = robot
-        .link_poses(&HashMap::new())
+fn sliders(robot: &Robot, positions: &HashMap<String, f64>) -> Vec<JointSlider> {
+    robot
+        .joints
         .iter()
-        .map(|m| m.w_axis.truncate())
-        .collect();
-    let centre = origins.iter().sum::<Vec3>() / origins.len().max(1) as f32;
-    let radius = origins
+        .filter(|j| j.is_movable())
+        .filter_map(|j| {
+            let (lo, hi) = slider_range(j)?;
+            Some(JointSlider {
+                name: j.name.as_str().into(),
+                value: positions[&j.name] as f32,
+                minimum: lo as f32,
+                maximum: hi as f32,
+            })
+        })
+        .collect()
+}
+
+/// Frame every link origin and visual at the start pose.
+fn initial_camera(robot: &Robot, positions: &HashMap<String, f64>) -> OrbitCamera {
+    let poses = robot.link_poses(positions);
+    let spheres = poses
         .iter()
-        .map(|p| p.distance(centre))
-        .fold(0.3, f32::max);
+        .map(|m| (m.w_axis.truncate(), 0.0))
+        .chain(robot.visuals.iter().map(|v| {
+            let centre = (poses[v.link] * v.origin).w_axis.truncate();
+            (centre, v.shape.bounding_radius())
+        }));
+    let (min, max) = spheres.fold((Vec3::INFINITY, Vec3::NEG_INFINITY), |(lo, hi), (c, r)| {
+        (lo.min(c - r), hi.max(c + r))
+    });
+    let radius = ((max - min).length() / 2.0).max(0.3);
     OrbitCamera {
-        target: centre,
+        target: (min + max) / 2.0,
         yaw: 0.6,
         pitch: 0.35,
-        distance: radius * 3.0,
+        // 3x the bounding radius fits it inside the 45° field of view.
+        distance: (radius * 3.0).clamp(MIN_DISTANCE, MAX_DISTANCE),
     }
 }
 
@@ -143,12 +164,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .select()?;
 
     let app = App::new()?;
-    let joints = Rc::new(VecModel::from(sliders(&robot)));
+    let positions = initial_positions(&robot);
+    let joints = Rc::new(VecModel::from(sliders(&robot, &positions)));
     app.set_joints(joints.clone().into());
 
     let state = Rc::new(RefCell::new(State {
-        camera: initial_camera(&robot),
-        positions: HashMap::new(),
+        camera: initial_camera(&robot, &positions),
+        positions,
         renderer: None,
         robot,
     }));
@@ -198,10 +220,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let (Some(renderer), Some(app)) = (state.renderer.as_mut(), weak.upgrade()) else {
                     return;
                 };
-                let poses = state.robot.link_poses(&state.positions);
                 let texture = renderer.render(
-                    &state.robot,
-                    &poses,
+                    &state.positions,
                     &state.camera,
                     app.get_texture_width() as u32,
                     app.get_texture_height() as u32,

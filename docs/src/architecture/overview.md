@@ -7,7 +7,10 @@ flowchart LR
     subgraph Clients["Workstation tools"]
         CLI["talos-cli"]
         TUI["talos-tui"]
+        Viewer["talos-viewer"]
     end
+
+    URDF["talos-urdf<br/>kinematic tree, FK, primitive geometry"]
 
     Common["talos-common<br/>protocol, session, transport, config, URDF"]
 
@@ -18,6 +21,7 @@ flowchart LR
 
     CLI -->|"uses"| Common
     TUI -->|"uses"| Common
+    Viewer -->|"uses"| URDF
     Agent -->|"uses"| Common
     Agent -->|"links to"| ROS
 ```
@@ -32,6 +36,10 @@ serves Talos clients.
 
 `talos-cli` and `talos-tui` are workstation tools. They only need the Talos
 protocol and a reachable agent.
+
+`talos-urdf` turns a URDF into a renderer-agnostic scene with no GPU, windowing
+or ROS 2 dependency. `talos-viewer` draws it with wgpu inside a Slint window;
+it is standalone for now and does not connect to an agent.
 
 ## Data Flow
 

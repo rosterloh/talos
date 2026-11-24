@@ -1,11 +1,15 @@
 # Getting Started
 
-Talos is a Cargo workspace with four crates:
+Talos is a Cargo workspace with six crates:
 
 - `talos-common`: protocol, config, transport, session, and URDF support.
 - `talos-agent`: ROS 2 bridge process that runs on the robot.
 - `talos-cli`: command-line client.
 - `talos-tui`: terminal UI client.
+- `talos-urdf`: renderer-agnostic URDF scene: kinematic tree, forward
+  kinematics and primitive geometry.
+- `talos-viewer`: standalone Slint 3D URDF viewer. A plain `cargo build`
+  skips it; build it with `-p talos-viewer` (see [3D Viewer](usage/viewer.md)).
 
 ## Build Without ROS 2
 

@@ -28,5 +28,6 @@ fn vs_main(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>) -> 
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let light = normalize(vec3<f32>(0.4, 0.3, 1.0));
     let diffuse = abs(dot(normalize(in.normal), light));
-    return vec4<f32>(draw.color.rgb * (0.35 + 0.65 * diffuse), draw.color.a);
+    // shortcut: translucent URDF colours are drawn opaque; add a depth-sorted blended pass if a robot needs them.
+    return vec4<f32>(draw.color.rgb * (0.35 + 0.65 * diffuse), 1.0);
 }

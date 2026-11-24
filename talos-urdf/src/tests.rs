@@ -93,6 +93,72 @@ fn materials_resolve_by_name_and_inline() {
 }
 
 #[test]
+fn chained_mimic_follows_driven_joint() {
+    let limit = r#"<axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="1"/>"#;
+    let urdf = format!(
+        r#"<robot name="g"><link name="base"/><link name="a"/><link name="b"/><link name="c"/>
+      <joint name="drive" type="revolute"><parent link="base"/><child link="a"/>{limit}</joint>
+      <joint name="finger_b" type="revolute"><parent link="base"/><child link="c"/>{limit}
+        <mimic joint="finger_a" multiplier="2" offset="0.1"/></joint>
+      <joint name="finger_a" type="revolute"><parent link="base"/><child link="b"/>{limit}
+        <mimic joint="drive" multiplier="-1" offset="0.2"/></joint></robot>"#
+    );
+    let robot = Robot::from_urdf_str(&urdf).unwrap();
+    let poses = robot.link_poses(&HashMap::from([("drive".to_owned(), 0.5)]));
+    // finger_a = -0.5 + 0.2 = -0.3; finger_b = 2 * -0.3 + 0.1 = -0.5
+    assert!(poses[2].abs_diff_eq(Mat4::from_rotation_z(-0.3), 1e-5));
+    assert!(poses[3].abs_diff_eq(Mat4::from_rotation_z(-0.5), 1e-5));
+
+    let cycle = urdf.replace(r#"joint="drive""#, r#"joint="finger_b""#);
+    assert!(matches!(
+        Robot::from_urdf_str(&cycle),
+        Err(Error::MimicCycle(_))
+    ));
+}
+
+#[test]
+fn joints_keep_urdf_order() {
+    let urdf = r#"<robot name="r"><link name="root"/><link name="A"/><link name="B"/>
+      <link name="A1"/><link name="B1"/>
+      <joint name="j3" type="fixed"><parent link="A"/><child link="A1"/><origin xyz="0 0 1"/></joint>
+      <joint name="j1" type="fixed"><parent link="root"/><child link="A"/><origin xyz="1 0 0"/></joint>
+      <joint name="j2" type="fixed"><parent link="root"/><child link="B"/><origin xyz="0 1 0"/></joint>
+      <joint name="j4" type="fixed"><parent link="B"/><child link="B1"/><origin xyz="0 0 2"/></joint>
+    </robot>"#;
+    let robot = Robot::from_urdf_str(urdf).unwrap();
+    let names: Vec<&str> = robot.joints.iter().map(|j| j.name.as_str()).collect();
+    assert_eq!(names, ["j3", "j1", "j2", "j4"]);
+    // FK still runs parent-first although j3 is declared before j1.
+    let poses = robot.link_poses(&HashMap::new());
+    assert_near(translation(&robot, &poses, "A1"), Vec3::new(1.0, 0.0, 1.0));
+    assert_near(translation(&robot, &poses, "B1"), Vec3::new(0.0, 1.0, 2.0));
+}
+
+#[test]
+fn materials_follow_urdfdom_precedence() {
+    let sphere = r#"<geometry><sphere radius="1"/></geometry>"#;
+    let urdf = format!(
+        r#"<robot name="m"><material name="green"><color rgba="0 1 0 1"/></material>
+      <link name="a">
+        <visual>{sphere}<material name="red"><color rgba="1 0 0 1"/></material></visual>
+        <visual>{sphere}<material name="green"><color rgba="0 0 1 1"/></material></visual>
+      </link>
+      <link name="b"><visual>{sphere}<material name="red"/></visual></link>
+      <joint name="j" type="fixed"><parent link="a"/><child link="b"/></joint></robot>"#
+    );
+    let robot = Robot::from_urdf_str(&urdf).unwrap();
+    let colors: Vec<[f32; 4]> = robot.visuals.iter().map(|v| v.color).collect();
+    assert_eq!(
+        colors,
+        [
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0, 1.0]
+        ]
+    );
+}
+
+#[test]
 fn rejects_two_roots() {
     let urdf = r#"<robot name="r"><link name="a"/><link name="b"/></robot>"#;
     assert!(matches!(
