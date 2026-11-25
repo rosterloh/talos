@@ -128,13 +128,46 @@ fn pose(p: &urdf_rs::Pose) -> Mat4 {
     )
 }
 
+/// Adds `effort="0"` / `velocity="0"` to `<limit>` tags lacking them: urdf-rs
+/// requires both, urdfdom defaults them, and the viewer never reads them.
+// shortcut: text scan, not an XML parse; a `<limit` in a comment is edited too, which is harmless.
+fn default_limit_attrs(xml: &str) -> String {
+    let has = |attrs: &str, name: &str| {
+        attrs.match_indices(name).any(|(i, _)| {
+            attrs[..i].ends_with(char::is_whitespace)
+                && attrs[i + name.len()..].trim_start().starts_with('=')
+        })
+    };
+    let mut out = String::with_capacity(xml.len());
+    let mut rest = xml;
+    while let Some(at) = rest.find("<limit") {
+        let (head, tail) = rest.split_at(at + "<limit".len());
+        out.push_str(head);
+        let is_limit = tail.starts_with(|c: char| c.is_whitespace() || c == '/' || c == '>');
+        let Some(end) = tail.find('>').filter(|_| is_limit) else {
+            rest = tail;
+            continue;
+        };
+        let attrs = tail[..end].strip_suffix('/').unwrap_or(&tail[..end]);
+        out.push_str(attrs);
+        for name in ["effort", "velocity"] {
+            if !has(attrs, name) {
+                out.push_str(&format!(r#" {name}="0""#));
+            }
+        }
+        rest = &tail[attrs.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn vec3(v: &urdf_rs::Vec3) -> Vec3 {
     Vec3::from(v.map(|c| c as f32))
 }
 
 impl Robot {
     pub fn from_urdf_str(xml: &str) -> Result<Self, Error> {
-        let urdf = urdf_rs::read_from_string(xml)?;
+        let urdf = urdf_rs::read_from_string(&default_limit_attrs(xml))?;
         Self::from_urdf(&urdf)
     }
 

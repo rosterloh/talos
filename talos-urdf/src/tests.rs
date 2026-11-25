@@ -241,3 +241,26 @@ fn primitives_wind_outward() {
         .is_none()
     );
 }
+
+#[test]
+fn limit_effort_and_velocity_default_like_urdfdom() {
+    let joint = |limit: &str| {
+        format!(
+            r#"<robot name="r"><link name="a"/><link name="b"/>
+          <joint name="j" type="prismatic"><parent link="a"/><child link="b"/>{limit}</joint></robot>"#
+        )
+    };
+    for limit in [
+        r#"<limit lower="0.1" upper="1"/>"#,
+        r#"<limit lower="0.1" upper="1" effort="5"/>"#,
+        r#"<limit velocity = "2" lower="0.1" upper="1"></limit>"#,
+        "<limit\n lower=\"0.1\"\n upper=\"1\" effort=\"1\" velocity=\"1\" />",
+    ] {
+        let robot = Robot::from_urdf_str(&joint(limit)).unwrap_or_else(|e| panic!("{limit}: {e}"));
+        let j = &robot.joints()[0];
+        assert_eq!((j.lower, j.upper), (0.1, 1.0), "{limit}");
+    }
+    // Present attributes are kept, not duplicated.
+    let kept = default_limit_attrs(r#"<limit effort="5" velocity="2"/>"#);
+    assert_eq!(kept, r#"<limit effort="5" velocity="2"/>"#);
+}

@@ -33,10 +33,7 @@ ROS. It needs a GPU adapter through wgpu; on a machine without one, set
 - Capsules are drawn as cylinders.
 - Translucent material colours are drawn opaque.
 - Joints whose limits are equal, missing or non-finite stay fixed and get no
-  slider.
-- A `<limit>` must carry `effort` and `velocity`: the `urdf-rs` parser
-  rejects the file otherwise, although urdfdom accepts it.
-- Floating, planar and spherical joints stay at their origin.
+  slider.- Floating, planar and spherical joints stay at their origin.
 - The render test needs a GPU adapter, so it is ignored by default; run it
   with `cargo test -p talos-viewer -- --ignored`.
 - No live data: wiring `/robot_description` and `/joint_states` from an agent
