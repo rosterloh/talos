@@ -108,7 +108,8 @@ pub struct Visual {
 #[derive(Debug, Clone)]
 pub struct Robot {
     pub name: String,
-    pub links: Vec<String>,
+    /// Private, like `joints`: joint and visual indices point into it.
+    links: Vec<String>,
     /// In URDF declaration order; private so it stays in step with `fk_order`.
     joints: Vec<Joint>,
     pub visuals: Vec<Visual>,
@@ -130,8 +131,24 @@ fn pose(p: &urdf_rs::Pose) -> Mat4 {
 
 /// Adds `effort="0"` / `velocity="0"` to `<limit>` tags lacking them: urdf-rs
 /// requires both, urdfdom defaults them, and the viewer never reads them.
-// shortcut: text scan, not an XML parse; a `<limit` in a comment is edited too, which is harmless.
+// shortcut: text scan, not an XML parse; comments are skipped, CDATA is not (URDFs have none).
 fn default_limit_attrs(xml: &str) -> String {
+    let mut out = String::with_capacity(xml.len());
+    let mut rest = xml;
+    // Copied verbatim: an attribute inserted into a comment can make it invalid XML.
+    while let Some(start) = rest.find("<!--") {
+        let end = rest[start..]
+            .find("-->")
+            .map_or(rest.len(), |e| start + e + 3);
+        out.push_str(&add_limit_attrs(&rest[..start]));
+        out.push_str(&rest[start..end]);
+        rest = &rest[end..];
+    }
+    out.push_str(&add_limit_attrs(rest));
+    out
+}
+
+fn add_limit_attrs(xml: &str) -> String {
     let has = |attrs: &str, name: &str| {
         attrs.match_indices(name).any(|(i, _)| {
             attrs[..i].ends_with(char::is_whitespace)
@@ -318,7 +335,8 @@ impl Robot {
                         Some(&known) => known,
                         None => {
                             let c = rgba(m);
-                            if c.is_some() {
+                            // A texture-only definition registers the name too, as in urdfdom.
+                            if c.is_some() || m.texture.is_some() {
                                 materials.insert(&m.name, c);
                             }
                             c
@@ -337,6 +355,10 @@ impl Robot {
             root,
             fk_order,
         })
+    }
+
+    pub fn links(&self) -> &[String] {
+        &self.links
     }
 
     /// In URDF declaration order.

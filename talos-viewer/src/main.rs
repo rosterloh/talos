@@ -12,7 +12,7 @@ use std::rc::Rc;
 use renderer::{MAX_DISTANCE, MIN_DISTANCE, OrbitCamera, Renderer};
 use slint::wgpu_30::WGPUConfiguration;
 use slint::{Model, VecModel};
-use talos_urdf::{Joint, JointKind, Robot, Vec3};
+use talos_urdf::{Joint, JointKind, Robot, Shape, Vec3};
 
 slint::slint! {
     #[edition = "1.19"]
@@ -89,13 +89,12 @@ struct State {
 
 /// Slider range, or `None` when equal, missing or non-finite limits lock the joint.
 fn slider_range(j: &Joint) -> Option<(f64, f64)> {
-    match j.kind {
-        JointKind::Continuous => Some((-PI, PI)),
-        _ if j.lower.is_finite() && j.upper.is_finite() && j.lower < j.upper => {
-            Some((j.lower, j.upper))
-        }
-        _ => None,
+    if j.kind == JointKind::Continuous {
+        return Some((-PI, PI));
     }
+    // Checked as the f32 Slint gets: 1..1.00000001 collapses and 1e39 overflows there.
+    let (lo, hi) = (j.lower as f32, j.upper as f32);
+    (lo.is_finite() && hi.is_finite() && lo < hi).then_some((j.lower, j.upper))
 }
 
 /// Start pose: every movable joint at zero, clamped into its limits.
@@ -132,21 +131,24 @@ fn sliders(robot: &Robot, positions: &HashMap<String, f64>) -> Vec<JointSlider> 
         .collect()
 }
 
-/// Frame the visuals at the start pose, or the link origins of a robot without any.
+/// Frame the drawn visuals at the start pose, or the link origins when none are drawn.
 fn initial_camera(robot: &Robot, positions: &HashMap<String, f64>) -> OrbitCamera {
     let poses = robot.link_poses(positions);
-    // Visuals only: an empty `world` link far from the robot must not pull the target away.
-    let spheres: Vec<(Vec3, f32)> = if robot.visuals.is_empty() {
+    // Drawn visuals only: an empty `world` link or a skipped mesh far away must not pull
+    // the target off what is on screen. Include meshes once they are loaded.
+    let spheres: Vec<(Vec3, f32)> = robot
+        .visuals
+        .iter()
+        .filter(|v| !matches!(v.shape, Shape::Mesh { .. }))
+        .map(|v| {
+            let centre = (poses[v.link] * v.origin).w_axis.truncate();
+            (centre, v.shape.bounding_radius())
+        })
+        .collect();
+    let spheres = if spheres.is_empty() {
         poses.iter().map(|m| (m.w_axis.truncate(), 0.0)).collect()
     } else {
-        robot
-            .visuals
-            .iter()
-            .map(|v| {
-                let centre = (poses[v.link] * v.origin).w_axis.truncate();
-                (centre, v.shape.bounding_radius())
-            })
-            .collect()
+        spheres
     };
     let (min, max) = spheres
         .into_iter()

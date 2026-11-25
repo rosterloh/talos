@@ -175,3 +175,55 @@ fn narrow_viewport_keeps_the_robot_in_view() {
         assert!(ndc.x.abs() <= 1.0 && ndc.y.abs() <= 1.0, "{d} -> {ndc}");
     }
 }
+
+#[test]
+fn skipped_meshes_do_not_move_the_camera() {
+    let robot = Robot::from_urdf_str(
+        r#"<robot name="r"><link name="base">
+          <visual><geometry><sphere radius="1"/></geometry></visual>
+          <visual><origin xyz="500 0 0"/><geometry><mesh filename="package://x.stl"/></geometry></visual>
+        </link></robot>"#,
+    )
+    .unwrap();
+    let camera = initial_camera(&robot, &HashMap::new());
+    assert!(camera.target.length() < 1e-3, "target {}", camera.target);
+}
+
+#[test]
+fn large_primitive_fits_the_view() {
+    let robot = Robot::from_urdf_str(
+        r#"<robot name="r"><link name="base"><visual>
+          <geometry><sphere radius="25"/></geometry></visual></link></robot>"#,
+    )
+    .unwrap();
+    let camera = initial_camera(&robot, &HashMap::new());
+    let view_proj = camera.view_proj(1.0);
+    for d in [
+        talos_urdf::Vec3::X,
+        talos_urdf::Vec3::Y,
+        talos_urdf::Vec3::Z,
+    ] {
+        for p in [camera.target + d * 25.0, camera.target - d * 25.0] {
+            let ndc = view_proj.project_point3(p);
+            // Inside the viewport and between the clip planes.
+            assert!(ndc.x.abs() <= 1.0 && ndc.y.abs() <= 1.0, "{p} -> {ndc}");
+            assert!((0.0..=1.0).contains(&ndc.z), "{p} -> {ndc}");
+        }
+    }
+}
+
+#[test]
+fn limits_that_collapse_in_f32_lock_the_joint() {
+    for (lower, upper) in [("1", "1.00000001"), ("-1e39", "1e39")] {
+        let robot = Robot::from_urdf_str(&format!(
+            r#"<robot name="r"><link name="a"/><link name="b"/>
+              <joint name="j" type="prismatic"><parent link="a"/><child link="b"/>
+                <limit lower="{lower}" upper="{upper}" {LIMIT}/></joint></robot>"#
+        ))
+        .unwrap();
+        assert!(
+            sliders(&robot, &initial_positions(&robot)).is_empty(),
+            "{lower}..{upper}"
+        );
+    }
+}

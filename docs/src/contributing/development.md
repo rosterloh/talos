@@ -86,11 +86,20 @@ cargo llvm-cov -p talos-common -p talos-cli -p talos-tui \
 python3 .github/scripts/coverage_report.py summarize coverage/lcov.info
 ```
 
-On machines without the Pixi environment, run
-`python3 .github/scripts/prepare_non_ros_workspace.py` first, as CI does. It
-removes `talos-agent` from both `members` and `default-members`; removing it
-from only one makes Cargo reject the manifest. Restore `Cargo.toml` and
-`Cargo.lock` (`git checkout -- Cargo.toml Cargo.lock`) afterwards.
+On machines without the Pixi environment, run non-ROS coverage in a throwaway
+worktree, as CI does for its base comparison.
+`.github/scripts/prepare_non_ros_workspace.py` removes `talos-agent` from
+`members` and `default-members`, renames `.cargo/config.toml` and lets Cargo
+rewrite `Cargo.lock`, so running it in your own checkout would mix those edits
+with your work. The worktree only sees committed changes:
+
+```bash
+git worktree add --detach ../talos-coverage HEAD
+cd ../talos-coverage
+python3 .github/scripts/prepare_non_ros_workspace.py
+cargo llvm-cov -p talos-common -p talos-cli -p talos-tui --features quic
+cd - && git worktree remove --force ../talos-coverage
+```
 
 ## Rustdoc
 

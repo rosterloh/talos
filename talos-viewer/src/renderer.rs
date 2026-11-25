@@ -12,9 +12,9 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const DRAW_STRIDE: u64 = 256;
 const GRID_HALF_CELLS: i32 = 10;
 const GRID_CELL_M: f32 = 0.5;
-/// Camera distance range in metres, inside the 100 m far plane.
+/// Camera distance range in metres; the clip planes scale with the distance.
 pub const MIN_DISTANCE: f32 = 0.05;
-pub const MAX_DISTANCE: f32 = 50.0;
+pub const MAX_DISTANCE: f32 = 1000.0;
 
 /// Z-up orbit camera, matching ROS conventions.
 pub struct OrbitCamera {
@@ -39,7 +39,12 @@ impl OrbitCamera {
                 half.atan()
             };
         // WebGPU clip space has the same 0..1 depth range as DirectX.
-        perspective(fov_y, aspect, 0.01, 100.0) * look_at_mat4(eye, self.target, Vec3::Z)
+        // A framed robot sits within distance / 3 of the target, so 3x the distance reaches it all.
+        let (near, far) = (
+            (self.distance * 0.002).max(0.01),
+            (self.distance * 3.0).max(100.0),
+        );
+        perspective(fov_y, aspect, near, far) * look_at_mat4(eye, self.target, Vec3::Z)
     }
 
     /// Orbit by pixel deltas from a pointer drag.

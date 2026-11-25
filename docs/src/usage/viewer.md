@@ -32,7 +32,8 @@ ROS. It needs a GPU adapter through wgpu; on a machine without one, set
 - Mesh visuals (`package://` STL, DAE, OBJ) are skipped with a warning.
 - Capsules are drawn as cylinders.
 - Translucent material colours are drawn opaque.
-- Joints whose limits are equal, missing or non-finite stay fixed and get no
+- Revolute and prismatic joints whose limits are equal, missing or too large
+  for a slider stay fixed and get no slider. Continuous joints get a −π…π
   slider.- Floating, planar and spherical joints stay at their origin.
 - The render test needs a GPU adapter, so it is ignored by default; run it
   with `cargo test -p talos-viewer -- --ignored`.

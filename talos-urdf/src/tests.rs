@@ -28,7 +28,7 @@ const ARM: &str = r#"
 </robot>"#;
 
 fn translation(robot: &Robot, poses: &[Mat4], link: &str) -> Vec3 {
-    let i = robot.links.iter().position(|l| l == link).unwrap();
+    let i = robot.links().iter().position(|l| l == link).unwrap();
     poses[i].w_axis.truncate()
 }
 
@@ -59,7 +59,7 @@ fn forward_kinematics_by_joint_name() {
     );
 
     // mirror = -1 * shoulder + 0.5
-    let twin = robot.links.iter().position(|l| l == "twin").unwrap();
+    let twin = robot.links().iter().position(|l| l == "twin").unwrap();
     let expected = Mat4::from_rotation_z(0.5 - FRAC_PI_2);
     assert!(poses[twin].abs_diff_eq(expected, 1e-5));
 
@@ -263,4 +263,24 @@ fn limit_effort_and_velocity_default_like_urdfdom() {
     // Present attributes are kept, not duplicated.
     let kept = default_limit_attrs(r#"<limit effort="5" velocity="2"/>"#);
     assert_eq!(kept, r#"<limit effort="5" velocity="2"/>"#);
+}
+
+#[test]
+fn limit_defaults_leave_comments_alone() {
+    let urdf = r#"<robot name="r"><!-- no <limit --><link name="a"/></robot>"#;
+    assert!(Robot::from_urdf_str(urdf).is_ok());
+    assert_eq!(default_limit_attrs(urdf), urdf);
+}
+
+#[test]
+fn inline_texture_only_material_keeps_its_name() {
+    let sphere = r#"<geometry><sphere radius="1"/></geometry>"#;
+    let urdf = format!(
+        r#"<robot name="m"><link name="a">
+        <visual>{sphere}<material name="surface"><texture filename="t.png"/></material></visual>
+        <visual>{sphere}<material name="surface"><color rgba="1 0 0 1"/></material></visual>
+        <visual>{sphere}<material name="surface"/></visual></link></robot>"#
+    );
+    let robot = Robot::from_urdf_str(&urdf).unwrap();
+    assert!(robot.visuals.iter().all(|v| v.color == DEFAULT_COLOR));
 }
