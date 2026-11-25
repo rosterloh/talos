@@ -86,9 +86,11 @@ cargo llvm-cov -p talos-common -p talos-cli -p talos-tui \
 python3 .github/scripts/coverage_report.py summarize coverage/lcov.info
 ```
 
-On machines without the Pixi environment, temporarily remove `talos-agent` from
-the workspace members before running non-ROS coverage; the CI workflow does this
-because these packages do not need ROS 2.
+On machines without the Pixi environment, run
+`python3 .github/scripts/prepare_non_ros_workspace.py` first, as CI does. It
+removes `talos-agent` from both `members` and `default-members`; removing it
+from only one makes Cargo reject the manifest. Restore `Cargo.toml` and
+`Cargo.lock` (`git checkout -- Cargo.toml Cargo.lock`) afterwards.
 
 ## Rustdoc
 

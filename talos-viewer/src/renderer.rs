@@ -30,9 +30,16 @@ impl OrbitCamera {
         let (sp, cp) = self.pitch.sin_cos();
         let eye = self.target + self.distance * Vec3::new(cp * cy, cp * sy, sp);
         use talos_urdf::glam::camera::rh::{proj::directx::perspective, view::look_at_mat4};
+        // Keep 45° on the narrower axis, so a tall, thin viewport does not clip the sides.
+        let half = 22.5f32.to_radians().tan();
+        let fov_y = 2.0
+            * if aspect < 1.0 {
+                (half / aspect).atan()
+            } else {
+                half.atan()
+            };
         // WebGPU clip space has the same 0..1 depth range as DirectX.
-        perspective(45f32.to_radians(), aspect, 0.01, 100.0)
-            * look_at_mat4(eye, self.target, Vec3::Z)
+        perspective(fov_y, aspect, 0.01, 100.0) * look_at_mat4(eye, self.target, Vec3::Z)
     }
 
     /// Orbit by pixel deltas from a pointer drag.

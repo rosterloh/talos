@@ -64,7 +64,7 @@ fn forward_kinematics_by_joint_name() {
     assert!(poses[twin].abs_diff_eq(expected, 1e-5));
 
     let movable: Vec<&str> = robot
-        .joints
+        .joints()
         .iter()
         .filter(|j| j.is_movable())
         .map(|j| j.name.as_str())
@@ -126,7 +126,7 @@ fn joints_keep_urdf_order() {
       <joint name="j4" type="fixed"><parent link="B"/><child link="B1"/><origin xyz="0 0 2"/></joint>
     </robot>"#;
     let robot = Robot::from_urdf_str(urdf).unwrap();
-    let names: Vec<&str> = robot.joints.iter().map(|j| j.name.as_str()).collect();
+    let names: Vec<&str> = robot.joints().iter().map(|j| j.name.as_str()).collect();
     assert_eq!(names, ["j3", "j1", "j2", "j4"]);
     // FK still runs parent-first although j3 is declared before j1.
     let poses = robot.link_poses(&HashMap::new());
@@ -139,23 +139,63 @@ fn materials_follow_urdfdom_precedence() {
     let sphere = r#"<geometry><sphere radius="1"/></geometry>"#;
     let urdf = format!(
         r#"<robot name="m"><material name="green"><color rgba="0 1 0 1"/></material>
+      <material name="tex"><texture filename="t.png"/></material>
       <link name="a">
+        <visual>{sphere}<material name="blue"/></visual>
         <visual>{sphere}<material name="red"><color rgba="1 0 0 1"/></material></visual>
         <visual>{sphere}<material name="green"><color rgba="0 0 1 1"/></material></visual>
+        <visual>{sphere}<material name="tex"><color rgba="1 0 0 1"/></material></visual>
       </link>
-      <link name="b"><visual>{sphere}<material name="red"/></visual></link>
+      <link name="b"><visual>{sphere}<material name="red"/></visual>
+        <visual>{sphere}<material name="blue"><color rgba="0 0 1 1"/></material></visual></link>
       <joint name="j" type="fixed"><parent link="a"/><child link="b"/></joint></robot>"#
     );
     let robot = Robot::from_urdf_str(&urdf).unwrap();
     let colors: Vec<[f32; 4]> = robot.visuals.iter().map(|v| v.color).collect();
+    let (red, green, blue) = (
+        [1.0, 0.0, 0.0, 1.0],
+        [0.0, 1.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 1.0],
+    );
+    // blue is referenced before it is defined; the texture-only global keeps "tex" uncoloured.
     assert_eq!(
         colors,
-        [
-            [1.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.0, 1.0],
-            [1.0, 0.0, 0.0, 1.0]
-        ]
+        [DEFAULT_COLOR, red, green, DEFAULT_COLOR, red, blue]
     );
+}
+
+#[test]
+fn rejects_what_urdfdom_rejects() {
+    let base = r#"<robot name="r"><link name="a"/><link name="b"/><link name="c"/>
+      <joint name="j" type="prismatic"><parent link="a"/><child link="b"/>
+        <limit lower="0" upper="1" effort="1" velocity="1"/></joint>
+      <joint name="k" type="prismatic"><parent link="a"/><child link="c"/>
+        <limit lower="0" upper="1" effort="1" velocity="1"/></joint></robot>"#;
+    assert!(Robot::from_urdf_str(base).is_ok());
+    let dup_joint = base.replace(r#"name="k""#, r#"name="j""#);
+    assert!(matches!(
+        Robot::from_urdf_str(&dup_joint),
+        Err(Error::Duplicate { kind: "joint", .. })
+    ));
+    let dup_material = base.replace(
+        r#"<link name="a"/>"#,
+        r#"<material name="m"/><material name="m"/><link name="a"/>"#,
+    );
+    assert!(matches!(
+        Robot::from_urdf_str(&dup_material),
+        Err(Error::Duplicate {
+            kind: "material",
+            ..
+        })
+    ));
+    let bad_mimic = base.replace(
+        "</joint></robot>",
+        r#"<mimic joint="missing"/></joint></robot>"#,
+    );
+    assert!(matches!(
+        Robot::from_urdf_str(&bad_mimic),
+        Err(Error::UnknownMimic { .. })
+    ));
 }
 
 #[test]

@@ -68,6 +68,8 @@ slint::slint! {
                         Slider {
                             minimum: joint.minimum;
                             maximum: joint.maximum;
+                            // Default step is 1, which skips a 4 cm gripper range in one key press.
+                            step: (joint.maximum - joint.minimum) / 100;
                             value: joint.value;
                             changed(v) => { root.joint-changed(i, v); }
                         }
@@ -85,11 +87,13 @@ struct State {
     renderer: Option<Renderer>,
 }
 
-/// Slider range, or `None` when equal (or missing) limits lock the joint.
+/// Slider range, or `None` when equal, missing or non-finite limits lock the joint.
 fn slider_range(j: &Joint) -> Option<(f64, f64)> {
     match j.kind {
         JointKind::Continuous => Some((-PI, PI)),
-        _ if j.lower < j.upper => Some((j.lower, j.upper)),
+        _ if j.lower.is_finite() && j.upper.is_finite() && j.lower < j.upper => {
+            Some((j.lower, j.upper))
+        }
         _ => None,
     }
 }
@@ -97,19 +101,23 @@ fn slider_range(j: &Joint) -> Option<(f64, f64)> {
 /// Start pose: every movable joint at zero, clamped into its limits.
 fn initial_positions(robot: &Robot) -> HashMap<String, f64> {
     robot
-        .joints
+        .joints()
         .iter()
         .filter(|j| j.is_movable())
         .map(|j| {
-            let (lo, hi) = slider_range(j).unwrap_or((j.lower, j.lower));
-            (j.name.clone(), 0f64.clamp(lo, hi))
+            let q = match slider_range(j) {
+                Some((lo, hi)) => 0f64.clamp(lo, hi),
+                None if j.lower.is_finite() => j.lower,
+                None => 0.0,
+            };
+            (j.name.clone(), q)
         })
         .collect()
 }
 
 fn sliders(robot: &Robot, positions: &HashMap<String, f64>) -> Vec<JointSlider> {
     robot
-        .joints
+        .joints()
         .iter()
         .filter(|j| j.is_movable())
         .filter_map(|j| {
@@ -124,32 +132,42 @@ fn sliders(robot: &Robot, positions: &HashMap<String, f64>) -> Vec<JointSlider> 
         .collect()
 }
 
-/// Frame every link origin and visual at the start pose.
+/// Frame the visuals at the start pose, or the link origins of a robot without any.
 fn initial_camera(robot: &Robot, positions: &HashMap<String, f64>) -> OrbitCamera {
     let poses = robot.link_poses(positions);
-    let spheres = poses
-        .iter()
-        .map(|m| (m.w_axis.truncate(), 0.0))
-        .chain(robot.visuals.iter().map(|v| {
-            let centre = (poses[v.link] * v.origin).w_axis.truncate();
-            (centre, v.shape.bounding_radius())
-        }));
-    let (min, max) = spheres.fold((Vec3::INFINITY, Vec3::NEG_INFINITY), |(lo, hi), (c, r)| {
-        (lo.min(c - r), hi.max(c + r))
-    });
+    // Visuals only: an empty `world` link far from the robot must not pull the target away.
+    let spheres: Vec<(Vec3, f32)> = if robot.visuals.is_empty() {
+        poses.iter().map(|m| (m.w_axis.truncate(), 0.0)).collect()
+    } else {
+        robot
+            .visuals
+            .iter()
+            .map(|v| {
+                let centre = (poses[v.link] * v.origin).w_axis.truncate();
+                (centre, v.shape.bounding_radius())
+            })
+            .collect()
+    };
+    let (min, max) = spheres
+        .into_iter()
+        .fold((Vec3::INFINITY, Vec3::NEG_INFINITY), |(lo, hi), (c, r)| {
+            (lo.min(c - r), hi.max(c + r))
+        });
     let radius = ((max - min).length() / 2.0).max(0.3);
     OrbitCamera {
         target: (min + max) / 2.0,
         yaw: 0.6,
         pitch: 0.35,
-        // 3x the bounding radius fits it inside the 45° field of view.
+        // 3x the bounding radius fits it inside the 45° field of view on the narrower axis.
         distance: (radius * 3.0).clamp(MIN_DISTANCE, MAX_DISTANCE),
     }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let xml = match std::env::args().nth(1) {
-        Some(path) => std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?,
+    let xml = match std::env::args_os().nth(1).map(std::path::PathBuf::from) {
+        Some(path) => {
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?
+        }
         None => include_str!("../demo.urdf").to_owned(),
     };
     let robot = Robot::from_urdf_str(&xml)?;

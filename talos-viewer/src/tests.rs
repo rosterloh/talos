@@ -125,3 +125,53 @@ fn camera_starts_outside_large_visuals() {
     // Half the box diagonal is about 2.18 m.
     assert!(camera.distance > 2.2, "distance {}", camera.distance);
 }
+
+#[test]
+fn non_finite_limits_lock_the_joint() {
+    let robot = Robot::from_urdf_str(&format!(
+        r#"<robot name="r"><link name="a"/><link name="b"/>
+          <joint name="j" type="prismatic"><parent link="a"/><child link="b"/>
+            <limit lower="NaN" upper="1" {LIMIT}/></joint></robot>"#
+    ))
+    .unwrap();
+    let positions = initial_positions(&robot);
+    assert_eq!(positions["j"], 0.0);
+    assert!(sliders(&robot, &positions).is_empty());
+}
+
+#[test]
+fn camera_frames_visuals_far_from_an_empty_world_link() {
+    let robot = Robot::from_urdf_str(
+        r#"<robot name="r"><link name="world"/>
+          <link name="ball"><visual><geometry><sphere radius="0.2"/></geometry></visual></link>
+          <joint name="j" type="fixed"><parent link="world"/><child link="ball"/>
+            <origin xyz="500 0 0"/></joint></robot>"#,
+    )
+    .unwrap();
+    let camera = initial_camera(&robot, &HashMap::new());
+    assert!(
+        camera
+            .target
+            .abs_diff_eq(talos_urdf::Vec3::new(500.0, 0.0, 0.0), 1e-3)
+    );
+}
+
+#[test]
+fn narrow_viewport_keeps_the_robot_in_view() {
+    let robot = Robot::from_urdf_str(
+        r#"<robot name="r"><link name="base"><visual>
+          <geometry><sphere radius="1"/></geometry></visual></link></robot>"#,
+    )
+    .unwrap();
+    let camera = initial_camera(&robot, &HashMap::new());
+    let view_proj = camera.view_proj(200.0 / 720.0);
+    for d in [
+        talos_urdf::Vec3::X,
+        talos_urdf::Vec3::NEG_X,
+        talos_urdf::Vec3::Y,
+        talos_urdf::Vec3::NEG_Y,
+    ] {
+        let ndc = view_proj.project_point3(camera.target + d);
+        assert!(ndc.x.abs() <= 1.0 && ndc.y.abs() <= 1.0, "{d} -> {ndc}");
+    }
+}

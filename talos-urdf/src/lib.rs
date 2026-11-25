@@ -4,7 +4,7 @@
 //! from joint positions keyed by joint name, and tessellates primitive visual
 //! geometry. No GPU, windowing or ROS 2 dependency, so any frontend can use it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::f32::consts::TAU;
 
 pub use glam::{self, Mat4, Vec3};
@@ -23,6 +23,21 @@ pub enum Error {
     NotATree(String),
     #[error("mimic joints form a cycle at joint {0}")]
     MimicCycle(String),
+    #[error("joint {joint} mimics unknown joint {target}")]
+    UnknownMimic { joint: String, target: String },
+    #[error("{kind} name {name} is not unique")]
+    Duplicate { kind: &'static str, name: String },
+}
+
+fn unique<'a>(kind: &'static str, names: impl IntoIterator<Item = &'a str>) -> Result<(), Error> {
+    let mut seen = HashSet::new();
+    match names.into_iter().find(|n| !seen.insert(*n)) {
+        Some(name) => Err(Error::Duplicate {
+            kind,
+            name: name.to_owned(),
+        }),
+        None => Ok(()),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,8 +109,8 @@ pub struct Visual {
 pub struct Robot {
     pub name: String,
     pub links: Vec<String>,
-    /// In URDF declaration order.
-    pub joints: Vec<Joint>,
+    /// In URDF declaration order; private so it stays in step with `fk_order`.
+    joints: Vec<Joint>,
     pub visuals: Vec<Visual>,
     root: usize,
     /// Indices into `joints`, parent-first, so poses fill in a single pass.
@@ -124,6 +139,11 @@ impl Robot {
     }
 
     pub fn from_urdf(urdf: &urdf_rs::Robot) -> Result<Self, Error> {
+        // urdfdom rejects these too; a later duplicate would silently shadow the first.
+        unique("link", urdf.links.iter().map(|l| l.name.as_str()))?;
+        unique("joint", urdf.joints.iter().map(|j| j.name.as_str()))?;
+        unique("material", urdf.materials.iter().map(|m| m.name.as_str()))?;
+
         let links: Vec<String> = urdf.links.iter().map(|l| l.name.clone()).collect();
         let index: HashMap<&str, usize> = links
             .iter()
@@ -205,10 +225,13 @@ impl Robot {
                     return Ok(None);
                 };
                 for _ in 0..joints.len() {
-                    let Some((next, m, o)) = by_name
+                    let &i = by_name
                         .get(src.as_str())
-                        .and_then(|&i| joints[i].mimic.as_ref())
-                    else {
+                        .ok_or_else(|| Error::UnknownMimic {
+                            joint: j.name.clone(),
+                            target: src.clone(),
+                        })?;
+                    let Some((next, m, o)) = &joints[i].mimic else {
                         return Ok(Some((src, mul, off)));
                     };
                     // q = mul * (m * next + o) + off
@@ -223,23 +246,14 @@ impl Robot {
             j.mimic = mimic;
         }
 
-        // As urdfdom: a top-level material wins over an inline one of the same
-        // name, and a material defined inline can be referenced by name elsewhere.
-        let mut materials: HashMap<&str, [f32; 4]> = HashMap::new();
-        let inline = urdf
-            .links
+        // As urdfdom: top-level materials (colour or texture-only) win over an inline
+        // one of the same name; an inline one is visible by name only to later visuals.
+        let rgba = |m: &urdf_rs::Material| m.color.as_ref().map(|c| c.rgba.map(|x| x as f32));
+        let mut materials: HashMap<&str, Option<[f32; 4]>> = urdf
+            .materials
             .iter()
-            .flat_map(|l| &l.visual)
-            .filter_map(|v| v.material.as_ref());
-        for m in urdf.materials.iter().chain(inline) {
-            if !m.name.is_empty()
-                && let Some(c) = &m.color
-            {
-                materials
-                    .entry(m.name.as_str())
-                    .or_insert(c.rgba.map(|x| x as f32));
-            }
-        }
+            .map(|m| (m.name.as_str(), rgba(m)))
+            .collect();
         let visuals = urdf
             .links
             .iter()
@@ -264,16 +278,21 @@ impl Robot {
                         scale: scale.as_ref().map_or(Vec3::ONE, vec3),
                     },
                 },
-                color: v
-                    .material
-                    .as_ref()
-                    .and_then(|m| {
-                        materials
-                            .get(m.name.as_str())
-                            .copied()
-                            .or_else(|| m.color.as_ref().map(|c| c.rgba.map(|x| x as f32)))
-                    })
-                    .unwrap_or(DEFAULT_COLOR),
+                color: match &v.material {
+                    None => None,
+                    Some(m) if m.name.is_empty() => rgba(m),
+                    Some(m) => match materials.get(m.name.as_str()) {
+                        Some(&known) => known,
+                        None => {
+                            let c = rgba(m);
+                            if c.is_some() {
+                                materials.insert(&m.name, c);
+                            }
+                            c
+                        }
+                    },
+                }
+                .unwrap_or(DEFAULT_COLOR),
             })
             .collect();
 
@@ -285,6 +304,11 @@ impl Robot {
             root,
             fk_order,
         })
+    }
+
+    /// In URDF declaration order.
+    pub fn joints(&self) -> &[Joint] {
+        &self.joints
     }
 
     pub fn root(&self) -> &str {

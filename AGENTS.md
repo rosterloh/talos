@@ -14,9 +14,9 @@ Talos is a terminal-native tool for observing and interacting with ROS 2 systems
 pixi install                 # one time: resolve the robostack-lyrical env
 pixi shell                   # enter the env (or prefix commands with `pixi run`)
 
-# Build / check everything (inside the pixi shell, or via `pixi run <task>`)
-cargo build                  # or: pixi run build
-cargo check --workspace
+# Build / check (inside the pixi shell, or via `pixi run <task>`)
+cargo build                  # or: pixi run build; default members, i.e. all but talos-viewer
+cargo check --workspace      # everything, including talos-viewer
 
 # Build without ROS 2 (cli, tui, common only) — no pixi env needed
 cargo check -p talos-common -p talos-cli -p talos-tui
