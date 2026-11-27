@@ -15,7 +15,8 @@ def prepare(root: Path) -> None:
     text = cargo_toml.read_text()
     if AGENT_MEMBER not in text:
         raise RuntimeError("talos-agent workspace member not found")
-    cargo_toml.write_text(text.replace(AGENT_MEMBER, "", 1))
+    # Also drops it from default-members, which uses the same layout.
+    cargo_toml.write_text(text.replace(AGENT_MEMBER, ""))
 
     # Base checkouts from before the ros-env switch still carry ROS patch paths.
     cargo_config = root / ".cargo" / "config.toml"

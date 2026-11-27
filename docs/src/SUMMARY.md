@@ -16,6 +16,7 @@
 - [Agent](usage/agent.md)
 - [CLI](usage/cli.md)
 - [TUI](usage/tui.md)
+- [3D Viewer](usage/viewer.md)
 
 # Configuration
 

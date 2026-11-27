@@ -14,9 +14,9 @@ Talos is a terminal-native tool for observing and interacting with ROS 2 systems
 pixi install                 # one time: resolve the robostack-lyrical env
 pixi shell                   # enter the env (or prefix commands with `pixi run`)
 
-# Build / check everything (inside the pixi shell, or via `pixi run <task>`)
-cargo build                  # or: pixi run build
-cargo check --workspace
+# Build / check (inside the pixi shell, or via `pixi run <task>`)
+cargo build                  # or: pixi run build; default members, i.e. all but talos-viewer
+cargo check --workspace      # everything, including talos-viewer
 
 # Build without ROS 2 (cli, tui, common only) — no pixi env needed
 cargo check -p talos-common -p talos-cli -p talos-tui
@@ -82,12 +82,16 @@ talos-tui ──► talos-common ◄── talos-agent ──► rclrs / ROS 2
 
 **talos-cli** — Developer workstation CLI. Subcommands: `list-topics`, `list-nodes`, `echo <topic>`.
 
+**talos-urdf** — Renderer-agnostic URDF scene (kinematic tree, FK by joint name, primitive tessellation). No GPU or ROS 2 dependency.
+
+**talos-viewer** — Slint 1.19 3D URDF viewer; renders `talos-urdf` with wgpu 30 into a texture (`unstable-wgpu-30`). Standalone for now.
+
 ## Key Design Patterns
 
 - **ROS 2 isolation**: Only `talos-agent` depends on rclrs. Client tools work without any ROS 2 installation.
 - **`DynValue` tree**: ROS 2 messages are converted to a generic `DynValue` enum in the agent, so clients need no message type definitions.
 - **Explicit subscriptions**: Clients send `Subscribe { topics }` after connecting; the `TopicRouter` only delivers data for subscribed topics.
-- **Feature-gated QUIC**: All crates accept a `quic` Cargo feature. Without it, only UDS transport is compiled.
+- **Feature-gated QUIC**: `talos-common`, `talos-agent`, `talos-cli` and `talos-tui` accept a `quic` Cargo feature. Without it, only UDS transport is compiled.
 
 ## Config Format (TOML)
 

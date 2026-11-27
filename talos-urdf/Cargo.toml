@@ -1,0 +1,12 @@
+[package]
+name = "talos-urdf"
+description = "Renderer-agnostic URDF scene: kinematic tree, forward kinematics and primitive geometry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+urdf-rs = "0.9.1"
+glam = "0.34.3"
+thiserror = { workspace = true }

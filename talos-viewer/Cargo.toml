@@ -1,0 +1,17 @@
+[package]
+name = "talos-viewer"
+description = "Slint 3D URDF viewer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+talos-urdf = { path = "../talos-urdf" }
+slint = { version = "1.19.0", features = ["unstable-wgpu-30", "renderer-femtovg-wgpu"] }
+bytemuck = { version = "1", features = ["derive"] }
+# Load fontconfig at runtime so the build needs no fontconfig.pc (missing from the pixi env).
+# Must match the fontique version slint uses (`cargo tree -i fontique` shows one copy), or
+# this feature no longer reaches slint's copy and the pixi build fails again.
+fontique = { version = "0.12.0", default-features = false, features = ["fontconfig-dlopen"] }

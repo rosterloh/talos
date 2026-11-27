@@ -40,10 +40,11 @@ jobs:
       - name: Prepare non-ROS workspace
         run: python3 .github/scripts/prepare_non_ros_workspace.py
 
+      # The viewer is checked here rather than in the pixi jobs, which skip it.
       - name: Clippy
         run: |
           cargo clippy -p talos-common -p talos-cli -p talos-tui \
-            --all-targets -- -D warnings
+            -p talos-urdf -p talos-viewer --all-targets -- -D warnings
 
       - name: Clippy (quic)
         run: |
@@ -51,7 +52,9 @@ jobs:
             --all-targets --features quic -- -D warnings
 
       - name: Test
-        run: cargo test -p talos-common -p talos-cli -p talos-tui --features quic
+        run: |
+          cargo test -p talos-common -p talos-cli -p talos-tui \
+            -p talos-urdf -p talos-viewer --features quic
 
   agent:
     name: Build and test talos-agent (ROS 2 Lyrical, ${{ matrix.arch }})
@@ -78,10 +81,11 @@ jobs:
       # talos-agent is the only crate that needs the ROS 2 runtime, and the
       # only place a bridge regression can be caught: tests/bridge_live.rs
       # publishes on a real topic and asserts the bridge forwards it.
+      # Default members: everything but talos-viewer, which the lint job covers.
       - name: Clippy
         run: |
-          pixi run -- cargo clippy --workspace --all-targets \
+          pixi run -- cargo clippy --all-targets \
             --features quic -- -D warnings
 
       - name: Test
-        run: pixi run -- cargo test --workspace --features quic
+        run: pixi run -- cargo test --features quic
